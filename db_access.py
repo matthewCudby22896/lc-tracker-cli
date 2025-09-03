@@ -2,16 +2,16 @@ import sys
 import logging
 import sqlite3
 import datetime
+from typing import Optional, Tuple, List
 
 from sm2 import EASE_INIT, SM2
 
-from typing import Optional, Tuple, List
 
 def db_con() -> sqlite3.Connection:
-    conn  = sqlite3.connect('lc-track-db')
+    conn  = sqlite3.connect('lc_tracker.db')
     return conn
 
-def init_db(con : Optional[sqlite3.Connection] = None) -> None:
+def init_db(con : Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     con = db_con() if not con else con
     cur = con.cursor()
 
@@ -27,7 +27,7 @@ def init_db(con : Optional[sqlite3.Connection] = None) -> None:
         CREATE TABLE IF NOT EXISTS problems(
             number INTEGER PRIMARY KEY,
             title  TEXT NOT NULL,
-            topic TEXT NOT NULL,
+            difficulty INTEGER NOT NULL,
             url    TEXT NOT NULL,
             last_review_at INTEGER,
             next_review_at INTEGER NOT NULL,
@@ -48,35 +48,38 @@ def init_db(con : Optional[sqlite3.Connection] = None) -> None:
             confidence INTEGER NOT NULL,
             ts INTEGER NOT NULL,
             time_taken INTEGER NOT NULL,
-            solved INTEGER NOT NULL,
             FOREIGN KEY (lc_num ) REFERENCES problems(number)
         );
     """)
 
     con.commit()
 
-def add_problem(number : int,
+    return con
+
+def insert_problem(number : int,
                 title : str,
-                topic : str,
+                difficulty : int,
                 url : str,
                 con : Optional[sqlite3.Connection]=None,
                 ) -> None:    
     con = db_con() if not con else con
     cur = con.cursor()
-    
+
     now_unix_ts = int(datetime.datetime.now().timestamp())    
     cur.execute("""
-        INSERT INTO problems (number, title, topic, url, last_review_at, next_review_at)        
+        INSERT INTO problems (number, title, difficulty, url, last_review_at, next_review_at)        
         VALUES (?, ?, ?, ?, NULL, ?)
         ON CONFLICT(number) DO UPDATE SET
-            title = excluded.title
-            topic = excluded.topic
+            title = excluded.title,
+            difficulty = excluded.difficulty,
             url = excluded.url
         """, 
-        (number, title, topic, url, now_unix_ts)
+        (number, title, difficulty, url, now_unix_ts)
     )
 
-    logging.info("LC {number}. has been added / updated")
+    logging.info(f"LC {number}. has been added / updated")
+
+    con.commit()
 
 def problem_exists(con : sqlite3.Connection, number : int) -> bool:
     cur = con.cursor()
@@ -104,7 +107,6 @@ def del_problem(con : Optional[sqlite3.Connection], number : int) -> None:
 def add_entry(lc_num : int,
               confidence : int,
               time_taken : int,
-              solved : bool,
               con : Optional[sqlite3.Connection] = None) -> None:
     con = db_con() if not con else con
     cur = con.cursor()
@@ -112,16 +114,36 @@ def add_entry(lc_num : int,
     now_unix_ts = int(datetime.datetime.now().timestamp())    
 
     if not problem_exists(con, lc_num):
-        logging.error("Problem {lc_num} not found. Entry not added.")
+        logging.error(f"Problem {lc_num} not found. Entry not added.")
         sys.exit(1)
 
+    # Insert the entry
     cur.execute(
         """
-        INSERT INTO entries (lc_num, confidence, ts, time_taken, solved) 
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO entries (lc_num, confidence, ts, time_taken) 
+        VALUES (?, ?, ?, ?)
         """,
-        (lc_num, confidence, now_unix_ts, time_taken, 1 if solved else 0)
+        (lc_num, confidence, now_unix_ts, time_taken)
     )
+
+    # Update the state of the problem
+    cur.execute("""
+        SELECT ease, interval_days, streak
+        FROM problems
+        WHERE number == ?
+        LIMIT 1
+    """, (lc_num,))
+
+    EF, I, n = cur.fetchone()
+    n, EF, I = SM2(confidence, n, EF, I)
+    cur.execute("""
+       UPDATE problems
+       SET ease = ?,
+           interval_days = ?,
+           streak = ?
+        WHERE number = ?
+    """, EF, I, n, lc_num)
+
     entry_id = cur.lastrowid
     con.commit()
 
@@ -130,7 +152,6 @@ def add_entry(lc_num : int,
         f"  LC Number   : {lc_num}\n"
         f"  Confidence  : {confidence}\n"
         f"  Time Taken  : {time_taken}s\n"
-        f"  Solved      : {solved}\n"
         f"  Timestamp   : {now_unix_ts}"
     )
     
@@ -153,67 +174,122 @@ def basic_del_entry(entry_id: int,
 # TODO: Implement recalc problem state that uses the history of entries in 
 # to calculate what the Leitner system variables should be.
 
-def recalc_problem_state(lc_num : int, con : Optional[sqlite3.Connection] = None) -> None: 
+def add_entry(lc_num: int,
+              confidence: int,
+              time_taken: int,
+              solved: bool,
+              con: Optional[sqlite3.Connection] = None) -> None:
     con = db_con() if not con else con
     cur = con.cursor()
 
-    # Ensure problem exists
-    if not problem_exists(con, lc_num):
-        logging.error(f"Problem {lc_num} not found. State recalc aborted.")
+    # validate inputs
+    if not (0 <= confidence <= 5):
+        logging.error(f"Invalid confidence {confidence}. Must be 0..5.")
         sys.exit(1)
-    
-    # Pull history
-    cur.execute("""]
-        SELECT confidence, ts
-        FROM ENTRIES
-        WHERE lc_num = ?
-        ORDER BY ts ASC, id ASC
-    """, (lc_num,))
-    history : List[Tuple[int, int]] = cur.fetchall()
-    
-    if not history:
-        now = int(datetime.datetime.now().timestamp()) 
-        cur.execute("""
-            UPDATE problems
-            SET last_review_at = NULL,
-                new_review_at = ?,
-                ease = ?,
-                interval_days = 0,
-                streak = 0 
-            WHERE number = ?
-        """, (now, EASE_INIT, lc_num))
+    if time_taken < 0:
+        logging.error(f"Invalid time_taken {time_taken}. Must be >= 0.")
+        sys.exit(1)
 
-    # Init with defaults
-    EF = EASE_INIT 
-    I = 0
-    n = 0
-    for confidence, _ in history:
-        n, EF, I = SM2(confidence, n, EF, I)
+    now_unix_ts = int(datetime.datetime.now().timestamp())
 
-    last_ts = history[-1][1]
-    next_review_at = last_ts + int(round(I * 86400)) 
-    
-    cur.execute("""
+    if not problem_exists(con, lc_num):
+        logging.error(f"Problem {lc_num} not found. Entry not added.")
+        sys.exit(1)
+
+    # insert entry
+    cur.execute(
+        """
+        INSERT INTO entries (lc_num, confidence, ts, time_taken)
+        VALUES (?, ?, ?, ?)
+        """,
+        (lc_num, confidence, now_unix_ts, time_taken)
+    )
+    entry_id = cur.lastrowid
+
+    # fetch current scheduling state
+    cur.execute(
+        "SELECT ease, interval_days, streak FROM problems WHERE number = ? LIMIT 1",
+        (lc_num,)
+    )
+    row = cur.fetchone()
+    if row is None:
+        logging.error(f"Inconsistent DB: problem {lc_num} disappeared.")
+        sys.exit(1)
+    EF, I, n = row
+
+    # apply SM-2, compute next review time
+    n, EF, I = SM2(confidence, n, EF, I)
+    next_review_at = now_unix_ts + int(round(I * 86400))
+
+    # update problem state
+    cur.execute(
+        """
         UPDATE problems
         SET last_review_at = ?,
             next_review_at = ?,
             ease = ?,
             interval_days = ?,
-            streak = ? 
+            streak = ?
         WHERE number = ?
-    """, (last_ts, next_review_at, float(EF), float(I), n, lc_num))
+        """,
+        (now_unix_ts, next_review_at, float(EF), float(I), int(n), lc_num)
+    )
 
     con.commit()
 
     logging.info(
-        f"LC {lc_num}: state recomputed\n"
-        f"  last_review_at : {last_ts}\n"
-        f"  next_review_at : {next_review_at}\n"
-        f"  ease           : {EF:.4f}\n"
-        f"  interval_days  : {I:.3f}\n"
-        f"  streak         : {n}"
-    ) 
+        f"New entry added (ID {entry_id}):\n"
+        f"  LC Number   : {lc_num}\n"
+        f"  Confidence  : {confidence}\n"
+        f"  Time Taken  : {time_taken}s\n"
+        f"  Timestamp   : {now_unix_ts}\n"
+        f"  Next Review : {next_review_at}\n"
+        f"  Ease        : {EF:.4f}\n"
+        f"  Interval    : {I:.3f} days\n"
+        f"  Streak      : {n}"
+    )
 
-        
+
+def get_due_problems(con: Optional[sqlite3.Connection] = None,
+                     difficulty: Optional[int] = None) -> List[Tuple[int, str, str, str]]:
+    """
+    Return a list of problems that are due for review.
+    If 'difficulty' is provided, only return problems of that difficulty.
+    """
+    con = db_con() if not con else con
+    cur = con.cursor()
+
+    now_unix_ts = int(datetime.datetime.now().timestamp())
+
+    cur.execute(
+        """
+        SELECT number, title, difficulty
+        FROM problems
+        WHERE next_review_at <= :now_time
+          AND (:diff IS NULL OR difficulty = :diff)
+        ORDER BY next_review_at ASC
+        """,
+        {"diff": difficulty, "now_time": now_unix_ts}
+    )
+
+    results = cur.fetchall()
+
+    logging.info(
+        f"Retrieved {len(results)} due problems"
+        + (f" (difficulty='{difficulty}')" if difficulty else "")
+    )
+    return results
+
+def get_all_problems(con: Optional[sqlite3.Connection] = None) -> List[Tuple[int, str, int, str]]:
+    con = db_con() if not con else con
+    cur = con.cursor()
     
-    
+    cur.execute("""
+        SELECT number, title, difficulty
+        FROM problems 
+    """)
+
+    results = cur.fetchall()
+
+    return results
+

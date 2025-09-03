@@ -1,0 +1,250 @@
+1929,Concatenation of Array,easy
+217,Contains Duplicate,easy
+242,Valid Anagram,easy
+1,Two Sum,easy
+14,Longest Common Prefix,easy
+49,Group Anagrams,medium
+27,Remove Element,easy
+169,Majority Element,easy
+705,Design HashSet,easy
+706,Design HashMap,easy
+912,Sort an Array,medium
+75,Sort Colors,medium
+347,Top K Frequent Elements,medium
+271,Encode and Decode Strings,medium
+304,Range Sum Query 2D Immutable,medium
+238,Product of Array Except Self,medium
+36,Valid Sudoku,medium
+128,Longest Consecutive Sequence,medium
+122,Best Time to Buy And Sell Stock II,medium
+229,Majority Element II,medium
+560,Subarray Sum Equals K,medium
+41,First Missing Positive,hard
+344,Reverse String,easy
+125,Valid Palindrome,easy
+680,Valid Palindrome II,easy
+1768,Merge Strings Alternately,easy
+88,Merge Sorted Array,easy
+26,Remove Duplicates From Sorted Array,easy
+167,Two Sum II Input Array Is Sorted,medium
+15,3Sum,medium
+18,4Sum,medium
+189,Rotate Array,medium
+11,Container With Most Water,medium
+881,Boats to Save People,medium
+42,Trapping Rain Water,hard
+220,Contains Duplicate II,easy
+121,Best Time to Buy And Sell Stock,easy
+3,Longest Substring Without Repeating Characters,medium
+424,Longest Repeating Character Replacement,medium
+567,Permutation In String,medium
+209,Minimum Size Subarray Sum,medium
+658,Find K Closest Elements,medium
+76,Minimum Window Substring,hard
+239,Sliding Window Maximum,hard
+682,Baseball Game,easy
+20,Valid Parentheses,easy
+232,Implement Stack Using Queues,easy
+225,Implement Queue Using Stacks,easy
+155,Min Stack,medium
+150,Evaluate Reverse Polish Notation,medium
+22,Generate Parentheses,medium
+735,Asteroid Collision,medium
+739,Daily Temperatures,medium
+901,Online Stock Span,medium
+853,Car Fleet,medium
+71,Simplify Path,medium
+394,Decode String,medium
+895,Maximum Frequency Stack,hard
+84,Largest Rectangle In Histogram,hard
+704,Binary Search,easy
+35,Search Insert Position,easy
+374,Guess Number Higher Or Lower,easy
+69,Sqrt(x),easy
+74,Search a 2D Matrix,medium
+875,Koko Eating Bananas,medium
+1011,Capacity to Ship Packages Within D Days,medium
+153,Find Minimum In Rotated Sorted Array,medium
+33,Search In Rotated Sorted Array,medium
+81,Search In Rotated Sorted Array II,medium
+981,Time Based Key Value Store,medium
+410,Split Array Largest Sum,hard
+4,Median of Two Sorted Arrays,hard
+1095,Find in Mountain Array,hard
+206,Reverse Linked List,easy
+21,Merge Two Sorted Lists,easy
+141,Linked List Cycle,easy
+143,Reorder List,medium
+19,Remove Nth Node From End of List,medium
+138,Copy List With Random Pointer,medium
+2,Add Two Numbers,medium
+287,Find The Duplicate Number,medium
+92,Reverse Linked List II,medium
+622,Design Circular Queue,medium
+146,LRU Cache,medium
+460,LFU Cache,hard
+23,Merge K Sorted Lists,hard
+25,Reverse Nodes In K Group,hard
+94,Binary Tree Inorder Traversal,easy
+144,Binary Tree Preorder Traversal,easy
+145,Binary Tree Postorder Traversal,easy
+226,Invert Binary Tree,easy
+104,Maximum Depth of Binary Tree,easy
+543,Diameter of Binary Tree,easy
+110,Balanced Binary Tree,easy
+100,Same Tree,easy
+572,Subtree of Another Tree,easy
+235,Lowest Common Ancestor of a Binary Search Tree,medium
+701,Insert into a Binary Search Tree,medium
+450,Delete Node in a BST,medium
+102,Binary Tree Level Order Traversal,medium
+199,Binary Tree Right Side View,medium
+427,Construct Quad Tree,medium
+1448,Count Good Nodes In Binary Tree,medium
+98,Validate Binary Search Tree,medium
+230,Kth Smallest Element in a BST,medium
+105,Construct Binary Tree From Preorder And Inorder Traversal,medium
+337,House Robber III,medium
+1325,Delete Leaves With a Given Value,medium
+124,Binary Tree Maximum Path Sum,hard
+297,Serialize And Deserialize Binary Tree,hard
+703,Kth Largest Element In a Stream,easy
+1046,Last Stone Weight,easy
+973,K Closest Points to Origin,medium
+215,Kth Largest Element In An Array,medium
+621,Task Scheduler,medium
+355,Design Twitter,medium
+1834,Single Threaded CPU,medium
+767,Reorganize String,medium
+1405,Longest Happy String,medium
+1094,Car Pooling,medium
+295,Find Median From Data Stream,hard
+502,IPO,hard
+1863,Sum of All Subsets XOR Total,easy
+78,Subsets,medium
+39,Combination Sum,medium
+40,Combination Sum II,medium
+77,Combinations,medium
+46,Permutations,medium
+90,Subsets II,medium
+47,Permutations II,medium
+79,Word Search,medium
+131,Palindrome Partitioning,medium
+17,Letter Combinations of a Phone Number,medium
+473,Matchsticks to Square,medium
+698,Partition to K Equal Sum Subsets,medium
+51,N Queens,hard
+52,N Queens II,hard
+140,Word Break II,hard
+208,Implement Trie Prefix Tree,medium
+211,Design Add And Search Words Data Structure,medium
+2707,Extra Characters in a String,medium
+212,Word Search II,hard
+463,Island Perimeter,easy
+953,Verifying An Alien Dictionary,easy
+997,Find the Town Judge,easy
+200,Number of Islands,medium
+695,Max Area of Island,medium
+133,Clone Graph,medium
+286,Walls And Gates,medium
+994,Rotting Oranges,medium
+417,Pacific Atlantic Water Flow,medium
+130,Surrounded Regions,medium
+752,Open The Lock,medium
+207,Course Schedule,medium
+210,Course Schedule II,medium
+261,Graph Valid Tree,medium
+1462,Course Schedule IV,medium
+323,Number of Connected Components In An Undirected Graph,medium
+684,Redundant Connection,medium
+721,Accounts Merge,medium
+399,Evaluate Division,medium
+310,Minimum Height Trees,medium
+127,Word Ladder,hard
+1631,Path with Minimum Effort,medium
+743,Network Delay Time,medium
+332,Reconstruct Itinerary,hard
+1584,Min Cost to Connect All Points,medium
+778,Swim In Rising Water,hard
+269,Alien Dictionary,hard
+787,Cheapest Flights Within K Stops,medium
+1489,Find Critical and Pseudo Critical Edges in Minimum Spanning Tree,hard
+2076,Build a Matrix With Conditions,hard
+2709,Greatest Common Divisor Traversal,hard
+70,Climbing Stairs,easy
+746,Min Cost Climbing Stairs,easy
+1137,N-th Tribonacci Number,easy
+198,House Robber,medium
+213,House Robber II,medium
+5,Longest Palindromic Substring,medium
+647,Palindromic Substrings,medium
+91,Decode Ways,medium
+322,Coin Change,medium
+152,Maximum Product Subarray,medium
+139,Word Break,medium
+300,Longest Increasing Subsequence,medium
+416,Partition Equal Subset Sum,medium
+377,Combination Sum IV,medium
+279,Perfect Squares,medium
+343,Integer Break,medium
+1406,Stone Game III,hard
+62,Unique Paths,medium
+63,Unique Paths II,medium
+64,Minimum Path Sum,medium
+1143,Longest Common Subsequence,medium
+1049,Last Stone Weight II,medium
+309,Best Time to Buy And Sell Stock With Cooldown,medium
+518,Coin Change II,medium
+494,Target Sum,medium
+97,Interleaving String,medium
+877,Stone Game,medium
+1510,Stone Game II,medium
+329,Longest Increasing Path In a Matrix,hard
+115,Distinct Subsequences,hard
+72,Edit Distance,medium
+312,Burst Balloons,hard
+10,Regular Expression Matching,hard
+860,Lemonade Change,easy
+53,Maximum Subarray,medium
+918,Maximum Sum Circular Subarray,medium
+978,Longest Turbulent Subarray,medium
+55,Jump Game,medium
+45,Jump Game II,medium
+1696,Jump Game VII,medium
+134,Gas Station,medium
+846,Hand of Straights,medium
+649,Dota2 Senate,medium
+1899,Merge Triplets to Form Target Triplet,medium
+763,Partition Labels,medium
+678,Valid Parenthesis String,medium
+135,Candy,hard
+57,Insert Interval,medium
+56,Merge Intervals,medium
+435,Non Overlapping Intervals,medium
+252,Meeting Rooms,easy
+253,Meeting Rooms II,medium
+2402,Meeting Rooms III,hard
+1851,Minimum Interval to Include Each Query,hard
+168,Excel Sheet Column Title,easy
+1071,Greatest Common Divisor of Strings,easy
+2807,Insert Greatest Common Divisors in Linked List,medium
+867,Transpose Matrix,easy
+48,Rotate Image,medium
+54,Spiral Matrix,medium
+73,Set Matrix Zeroes,medium
+202,Happy Number,easy
+66,Plus One,easy
+13,Roman to Integer,easy
+50,Pow(x, n),medium
+43,Multiply Strings,medium
+2013,Detect Squares,medium
+36,Single Number,easy
+191,Number of 1 Bits,easy
+338,Counting Bits,easy
+67,Add Binary,easy
+190,Reverse Bits,easy
+268,Missing Number,easy
+371,Sum of Two Integers,medium
+7,Reverse Integer,medium
+201,Bitwise AND of Numbers Range,medium
+2981,Minimum Array End,medium
