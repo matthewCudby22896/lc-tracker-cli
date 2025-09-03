@@ -3,7 +3,9 @@ import logging
 import sqlite3
 import datetime
 
-from typing import Optional
+from sm2 import EASE_INIT, SM2
+
+from typing import Optional, Tuple, List
 
 def db_con() -> sqlite3.Connection:
     conn  = sqlite3.connect('lc-track-db')
@@ -74,7 +76,6 @@ def add_problem(number : int,
         (number, title, topic, url, now_unix_ts)
     )
 
-    # TODO: Log that probelm has been added / updated
     logging.info("LC {number}. has been added / updated")
 
 def problem_exists(con : sqlite3.Connection, number : int) -> bool:
@@ -151,3 +152,68 @@ def basic_del_entry(entry_id: int,
 
 # TODO: Implement recalc problem state that uses the history of entries in 
 # to calculate what the Leitner system variables should be.
+
+def recalc_problem_state(lc_num : int, con : Optional[sqlite3.Connection] = None) -> None: 
+    con = db_con() if not con else con
+    cur = con.cursor()
+
+    # Ensure problem exists
+    if not problem_exists(con, lc_num):
+        logging.error(f"Problem {lc_num} not found. State recalc aborted.")
+        sys.exit(1)
+    
+    # Pull history
+    cur.execute("""]
+        SELECT confidence, ts
+        FROM ENTRIES
+        WHERE lc_num = ?
+        ORDER BY ts ASC, id ASC
+    """, (lc_num,))
+    history : List[Tuple[int, int]] = cur.fetchall()
+    
+    if not history:
+        now = int(datetime.datetime.now().timestamp()) 
+        cur.execute("""
+            UPDATE problems
+            SET last_review_at = NULL,
+                new_review_at = ?,
+                ease = ?,
+                interval_days = 0,
+                streak = 0 
+            WHERE number = ?
+        """, (now, EASE_INIT, lc_num))
+
+    # Init with defaults
+    EF = EASE_INIT 
+    I = 0
+    n = 0
+    for confidence, _ in history:
+        n, EF, I = SM2(confidence, n, EF, I)
+
+    last_ts = history[-1][1]
+    next_review_at = last_ts + int(round(I * 86400)) 
+    
+    cur.execute("""
+        UPDATE problems
+        SET last_review_at = ?,
+            next_review_at = ?,
+            ease = ?,
+            interval_days = ?,
+            streak = ? 
+        WHERE number = ?
+    """, (last_ts, next_review_at, float(EF), float(I), n, lc_num))
+
+    con.commit()
+
+    logging.info(
+        f"LC {lc_num}: state recomputed\n"
+        f"  last_review_at : {last_ts}\n"
+        f"  next_review_at : {next_review_at}\n"
+        f"  ease           : {EF:.4f}\n"
+        f"  interval_days  : {I:.3f}\n"
+        f"  streak         : {n}"
+    ) 
+
+        
+    
+    
