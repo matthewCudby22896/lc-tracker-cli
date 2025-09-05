@@ -1,13 +1,17 @@
 import re
+import sys
 import logging
 import datetime
 from enum import Enum
 import typer
 from click import IntRange
 
-import access
-from sm2 import SM2  # ensure this exists
+from . import access
+from .sm2 import SM2  # ensure this exists
+from typing import Tuple, List
 
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
 
 class Difficulty(str, Enum):
@@ -36,9 +40,9 @@ def add_problem(number: int, title: str, difficulty: Difficulty) -> None:
 def rm_problem(number: int) -> None:
     if not access.problem_exists(number):
         logging.error(f"LC {number} was not found.")
-        raise typer.Exit(code=1)
+        sys.exit(1)
 
-    deleted = access.del_problem(number)  # make this return True/False
+    access.del_problem(number)
 
     logging.info(f"LC {number} removed.")
 
@@ -95,7 +99,7 @@ def recalc_and_set_problem_state(number: int) -> None:
     records: List[Tuple[int, int, int]] = access.get_all_records_by_problem(number)
 
     if not records:
-        now = int(time())
+        now = int(datetime.datetime.now().timestamp())
         n, EF, I = 0, 2.5, 0.0
         last_review_at = None
         next_review_at = now
@@ -116,6 +120,5 @@ def recalc_and_set_problem_state(number: int) -> None:
     access.update_problem_state(number, n, EF, I, last_review_at, next_review_at)
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     app()
 

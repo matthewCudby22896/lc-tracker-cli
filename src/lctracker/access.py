@@ -180,14 +180,13 @@ def init_record_table() -> None:
 def init_database() -> None:
     cur = CON.cursor()
     # Enable foregin key constraint
-    cur.execute("PRAGMA foreign_keys = ON;")
+    # cur.execute("PRAGMA foreign_keys = ON;")
     
     # Init tables (order matters)
     init_problem_table()
     init_record_table()
 
 init_database()
-
 
 
 

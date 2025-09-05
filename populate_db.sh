@@ -26,5 +26,5 @@ while IFS= read -r LINE; do
   difficulty="$(echo -n "$difficulty" | xargs | tr '[:upper:]' '[:lower:]')"
 
   # Run the CLI command
-  python3 lc_tracker.py add-problem "$number" "$title" "$difficulty"
+  lc-track add-problem "$number" "$title" "$difficulty"
 done < "$INFILE"

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lc-tracker"
+version = "0.1.0"
+description = "LeetCode study tracker with SM-2 scheduling"
+readme = "README.md"
+requires-python = ">=3.9.1"
+license = {text = "MIT"}
+dependencies = [
+  "typer[all]>=0.12",
+  "platformdirs>=4.2",
+]
+
+[project.scripts]
+lc-track = "lctracker.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lctracker"]
