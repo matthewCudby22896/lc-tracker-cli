@@ -1,17 +1,28 @@
 import sqlite3
+import os
 import datetime
 from pathlib import Path
 from typing import Tuple, List, Any, Optional
 
-# Resolve data directory
-DATA_DIR = Path("~/.local/share/lc-track").expanduser()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+def get_data_dir():
+    # Priority: Environment variable -> Default XDF Path -> Home fallback
+    xdg_data = os.environ.get("XDG_DATA_HOME")
 
-# Full path to database
+    if xdg_data:
+        data_path = Path(xdg_data) / "lc-track"
+    else:
+        data_path = Path.home() / ".local" / "share" / "lc-track"
+    
+    data_path.mkdir(parents=True, exist_ok=True)
+
+    return data_path
+
+DATA_DIR = get_data_dir()
 DB_FILE = DATA_DIR / "database.db"
+CON = sqlite3.connect(DB_FILE) # Creates DB if it doesn't exist
 
-# Open SQLite connection
-CON = sqlite3.connect(DB_FILE)
+def get_db_con() -> sqlite3.Connection:
+    return CON
 
 def insert_problem(number : int,
                    title : str,
@@ -56,16 +67,15 @@ def entry_exists(id : int) -> bool:
  
 def insert_record(number : int,
                   confidence : int,
-                  time_taken : int,
                   ts : int) -> None:
     cur = CON.cursor()
 
     cur.execute(
         """
-        INSERT INTO records (problem_num, confidence, time_taken, ts) 
+        INSERT INTO records (problem_num, confidence, ts) 
         VALUES  (?, ?, ?, ?)
         """
-    , (number, confidence, time_taken, ts))
+    , (number, confidence, ts))
 
     record_id = cur.lastrowid
 
@@ -170,7 +180,6 @@ def init_record_table() -> None:
         problem_num INTEGER NOT NULL,
         confidence INTEGER NOT NULL,
         ts INTEGER NOT NULL,
-        time_taken INTEGER NOT NULL,
         FOREIGN KEY (problem_num) REFERENCES problems(number)
     );
     """
