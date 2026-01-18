@@ -35,7 +35,7 @@ def fetch_all_problems():
         data = res.json()['stat_status_pairs']
 
         id_to_title_slug_map = {
-            int(entry['stat']['question_id']) : entry['stat']['question__title_slug']
+            int(entry['stat']['frontend_question_id']) : entry['stat']['question__title_slug']
             for entry 
             in data
         }
