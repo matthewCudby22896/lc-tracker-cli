@@ -50,7 +50,6 @@ def rm_problem(number: int) -> None:
 def add_record(
     number: int,
     confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=IntRange(0, 5)),
-    time_taken: int = typer.Option(..., help="Time spent in minutes"),
 ) -> None:
     now_unix_ts = int(datetime.datetime.now().timestamp())
 
@@ -58,7 +57,7 @@ def add_record(
         logging.error(f"LC {number} was not found.")
         raise typer.Exit(code=1)
 
-    record_id = access.insert_record(number, confidence, time_taken, now_unix_ts)
+    record_id = access.insert_record(number, confidence, now_unix_ts)
 
     n, EF, I = access.get_problem_state(number)
 
@@ -71,7 +70,6 @@ def add_record(
         f"New record added (ID {record_id}):\n"
         f"  LC Number       : {number}\n"
         f"  Confidence      : {confidence}\n"
-        f"  Time Taken      : {time_taken}m\n"
         f"  Last Review At  : {fmt(now_unix_ts)}\n"
         f"  Next Review At  : {fmt(next_review_at)}\n"
         f"  SM-2 State -> n: {n_new}, EF: {EF_new:.4f}, I: {I_new:.3f} days"

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lc-tracker"
+name = "lc-track"
 version = "0.1.0"
 description = "LeetCode study tracker with SM-2 scheduling"
 readme = "README.md"
