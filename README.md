@@ -33,3 +33,35 @@
 - [ ] : Github back-up functionality, records + settings
 - [ ] : Language + Default Language
 - [ ] : Improved add-problem that requires only the problem number, and then proceeds to fetch the details, which are then stored locally.
+
+### DB Design
+
+-- 1. Main Problems Table
+CREATE TABLE problems (
+    id INTEGER PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    difficulty INTEGER NOT NULL CHECK
+    last_review_at INTEGER,
+    next_review_at INTEGER NOT NULL,
+
+    -- Spaced Repetition Fields (SuperMemAo-2 logic)
+    EF REAL NOT NULL DEFAULT 2.5,
+    I INTEGER NOT NULL DEFAULT 0,
+    n INTEGER NOT NULL DEFAULT 0
+);
+
+-- 2. Topics Lookup Table
+CREATE TABLE topics (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
+-- 3. Junction Table
+CREATE TABLE problem_topic (
+    problem_id INTEGER NOT NULL,
+    topic_id INTEGER NOT NULL,
+    PRIMARY KEY (problem_id, topic_id),
+    FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+    FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+);

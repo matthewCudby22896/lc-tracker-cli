@@ -23,6 +23,18 @@ class Difficulty(str, Enum):
 
 DIFF_TO_INT = {"easy": 0, "medium": 1, "hard": 2}
 
+@app.callback()
+def main():
+    """
+    LeetCode Track CLI: Spaced Repition for your coding practice.
+    """
+    if not access.db_exists():
+        access.init_db()
+        logging.info("lc-track database initialised.") 
+
+    if access.get_state("initial_sync") != "complete":
+        access.initial_sync()
+
 def slugify_title(title: str) -> str:
     s = re.sub(r"[^a-z0-9\- ]", "", title.lower())
     return re.sub(r"\s+", "-", s.strip())
@@ -31,101 +43,15 @@ def fmt(ts: int) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 @app.command(name="add-problem")
-def add_problem(number: int) -> None:
-
-    fetch_problem_by_number(number)
+def add_problem(id: int) -> None:
+    # Query the id_to_slug table for the specified id
+    # access.get_title_slug_from_id(id)
+    
     return
 
     access.insert_problem(number, title, DIFF_TO_INT[difficulty.value], url)
 
     logging.info(f"LC {number}. {title} [{difficulty.value}] added/updated ")
-
-def fetch_problem_by_number(number: int):
-    url = "https://leetcode.com/graphql"
-    
-    # We use the exact structure from your search bar observation
-    # 'searchKeyword' with the dot (e.g., "1.") is the trick for exact ID match
-    payload = {
-        "query": """
-        query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionFilterInput, $searchKeyword: String, $sortBy: QuestionSortByInput) {
-            problemsetQuestionListV2(
-                categorySlug: $categorySlug
-                limit: $limit
-                skip: $skip
-                filters: $filters
-                searchKeyword: $searchKeyword
-                sortBy: $sortBy
-            ) {
-                questions {
-                    questionFrontendId
-                    title
-                    titleSlug
-                    difficulty
-                    topicTags {
-                        name
-                        slug
-                    }
-                }
-            }
-        }
-        """,
-        "variables": {
-            "categorySlug": "all-code-essentials",
-            "skip": 0,
-            "limit": 20,
-            "filters": {
-                "filterCombineType": "ALL",
-                "statusFilter": {"questionStatuses": [], "operator": "IS"},
-                "difficultyFilter": {"difficulties": [], "operator": "IS"},
-                "languageFilter": {"languageSlugs": [], "operator": "IS"},
-                "topicFilter": {"topicSlugs": [], "operator": "IS"},
-                "acceptanceFilter": {},
-                "frequencyFilter": {},
-                "frontendIdFilter": {},
-                "lastSubmittedFilter": {},
-                "publishedFilter": {},
-                "companyFilter": {"companySlugs": [], "operator": "IS"},
-                "positionFilter": {"positionSlugs": [], "operator": "IS"},
-                "contestPointFilter": {"contestPoints": [], "operator": "IS"},
-                "premiumFilter": {"premiumStatus": [], "operator": "IS"}
-            },
-            "searchKeyword": f"{number}.",
-            "sortBy": {"sortField": "CUSTOM", "sortOrder": "ASCENDING"}
-        },
-        "operationName": "problemsetQuestionList"
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-        "Referer": "https://leetcode.com/problemset/"
-    }
-
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-
-        print(data)
-        return
-        # Extract the list of questions
-        results = data.get("data", {}).get("problemsetQuestionListV2", {}).get("questions", [])
-        
-        # Double-check the exact ID match among results
-        problem = next((q for q in results if q["questionFrontendId"] == str(number)), None)
-        
-        if problem:
-            return {
-                "title": problem["title"],
-                "difficulty": problem["difficulty"].lower(),
-                "topics": [t["name"] for t in problem["topicTags"]],
-                "slug": problem["titleSlug"]
-            }
-        return None
-
-    except requests.exceptions.RequestException as e:
-        print(f"Connection error: {e}")
-        return None
 
 @app.command(name="rm-problem")
 def rm_problem(number: int) -> None:
@@ -209,7 +135,7 @@ def recalc_and_set_problem_state(number: int) -> None:
 
 @app.command(name="sync-problem-ids")
 def sync_id_to_slug_table():
-    con = access.get_db_con()
+    con = access.get_db_connection()
     cur = con.cursor()
 
     try:
@@ -239,7 +165,6 @@ def sync_id_to_slug_table():
     except Exception as e:
         con.rollback()
         logging.error(f"Sync of id_to_slug table failed. For reason {e}")
-
 
 if __name__ == "__main__":
     app()

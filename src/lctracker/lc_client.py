@@ -1,12 +1,8 @@
 
 import requests
 import logging
-import os
 
 from typing import Dict, Tuple, List
-from pathlib import Path
-
-from .access import get_db_con
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -22,7 +18,7 @@ session.headers.update({
     "Referer": "https://leetcode.com"
 })
 
-def fetch_all_problems():
+def fetch_all_problems() -> List[Tuple[int, str]]:
     """
     Makes a request to a public leetcode endpoint to retrieve all problem-slugs, and numbers.
 
@@ -34,11 +30,11 @@ def fetch_all_problems():
         res.raise_for_status()
         data = res.json()['stat_status_pairs']
 
-        id_to_title_slug_map = {
-            int(entry['stat']['frontend_question_id']) : entry['stat']['question__title_slug']
+        id_to_title_slug_map = [
+            (int(entry['stat']['frontend_question_id']), entry['stat']['question__title_slug'])
             for entry 
             in data
-        }
+        ]
 
     except Exception as e:
         # Adding context and rethrowing the original error
