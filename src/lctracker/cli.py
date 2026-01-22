@@ -49,16 +49,13 @@ def test():
     """
     print("test()")
 
-@app.command(name="add-problem")
-def add_problem(id: int) -> None:
+@app.command(name="add")
+def activate(id: int) -> None:
     # Query the id_to_slug table for the specified id
     access.get_p
 
     return
 
-    access.insert_problem(number, title, DIFF_TO_INT[difficulty.value], url)
-
-    logging.info(f"LC {number}. {title} [{difficulty.value}] added/updated ")
 
 @app.command(name="rm-problem")
 def rm_problem(number: int) -> None:

@@ -186,21 +186,21 @@ def init_db() -> None:
         next_review_at INTEGER DEFAULT 0,
         EF REAL DEFAULT 2.5,
         I INTEGER DEFAULT 0,
-        n INTEGER DEFAULT 0
+        n INTEGER DEFAULT 0,
+        active BOOLEAN DEFAULT 0
     );
 
-
     CREATE TABLE IF NOT EXISTS topics (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE
+        topic_slug TEXT PRIMARY KEY,
+        topic_title TEXT NOT NULL UNIQUE
     );
 
     CREATE TABLE IF NOT EXISTS problem_topic (
         problem_id INTEGER NOT NULL,
-        topic_id INTEGER NOT NULL,
-        PRIMARY KEY (problem_id, topic_id),
+        topic_slug TEXT NOT NULL,
+        PRIMARY KEY (problem_id, topic_slug),
         FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
-        FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+        FOREIGN KEY (topic_slug) REFERENCES topics(topic_slug) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS entries(
@@ -261,6 +261,7 @@ INT_TO_DIFF = {
     0 : "Easy"
 }
 
+# TODO: Move to suitable loc
 def initial_sync() -> None:
     problems_raw = fetch_all_problems()
     
@@ -269,6 +270,11 @@ def initial_sync() -> None:
             (x['questionFrontendId'], x['titleSlug'], x['title'], DIFF_TO_INT[x['difficulty']])
             for x in problems_raw
         ]
+
+        topics = {(t['slug'], t['name']) for p in problems_raw for t in p['topicTags']}
+
+        problem_topics = [(p['questionFrontendId'], t['slug']) for p in problems_raw for t in p['topicTags']]
+
     except Exception as e:
         logging.error(f"Failed to parse problem set fetched from leetcode.com: {e}")
         return
@@ -280,6 +286,12 @@ def initial_sync() -> None:
             
             stmt = "INSERT INTO problems (id, slug, title, difficulty) VALUES (?, ?, ?, ?);"
             cur.executemany(stmt, problems)
+
+            stmt = "INSERT INTO topics (topic_slug, topic_title) VALUES (?, ?);"
+            cur.executemany(stmt, topics)
+
+            stmt = "INSERT INTO problem_topic (problem_id, topic_slug) VALUES (?, ?);"
+            cur.executemany(stmt, problem_topics)
             
             set_state(con, "initial_sync", "complete")
         
