@@ -1,15 +1,14 @@
 import re
-import sys
 import logging
 import datetime
 from enum import Enum
 import typer
-from click import IntRange
-import requests
+import click
+
+from .utility import recalc_and_set_problem_state
 
 from . import access
 from .sm2 import SM2  # ensure this exists
-from .lc_client import fetch_all_problems
 
 from typing import Dict, Tuple, List
 
@@ -45,13 +44,13 @@ def fmt(ts: int) -> str:
 @app.command(name="test")
 def test():
     """
-    For development purposes
+    For development purposes.
     """
     print("test()")
 
 @app.command(name="activate")
 def activate(id: int) -> None:
-    """ Add a problem to the active study set.
+    """ Add a problem (by it's id) to the 'active' study set.
     """
     problem = access.get_problem(id)
     if not problem:
@@ -68,7 +67,7 @@ def activate(id: int) -> None:
 
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
-    """ Remove a problem from the active study set.
+    """ Remove a problem (by it's id) from the 'active' study set.
     """
     problem = access.get_problem(id)
     if not problem:
@@ -85,6 +84,8 @@ def deactivate(id: int) -> None:
 
 @app.command(name="details")
 def details(id: int) -> None:
+    """ Show the details of a LC problem.
+    """
     problem = access.get_problem(id)
     if not problem: 
         print(f"No problem found with id: {id}")
@@ -118,8 +119,15 @@ def details(id: int) -> None:
 @app.command(name="add-entry")
 def add_entry(
     id: int,
-    confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=IntRange(0, 5)),
+    confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=click.IntRange(0, 5)),
 ) -> None:
+    """
+        Log a completion and update the Spaced Repetition (SM-2) schedule.
+
+        This command records a new study session for a specific problem, updates 
+        the internal Easiness Factor (EF), and calculates the next review date 
+        based on your confidence level.
+    """
     now_unix_ts = int(datetime.datetime.now().timestamp())
 
     problem = access.get_problem(id) 
@@ -139,15 +147,16 @@ def add_entry(
 
     access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
 
-    print(
-        f"New record added (ID {record_id}):\n"
-        f"  LC Number       : {id}\n"
-        f"  Confidence      : {confidence}\n"
-        f"  Last Review At  : {fmt(now_unix_ts)}\n"
-        f"  Next Review At  : {fmt(next_review_at)}\n"
-        f"  SM-2 State -> n: {n_new}, EF: {EF_new:.4f}, I: {I_new:.3f} days"
-    )
+    print("-" * 30)
+    print(f"Record Saved [ID: {record_id}]")
+    print("-" * 30)
+    print(f"{'Problem ID':<15}: {id}")
+    print(f"{'Confidence':<15}: {confidence}/5")
+    print(f"{'Next Review':<15}: {fmt(next_review_at)} (in {I_new:.1f} days)")
+    print(f"{'New EF':<15}: {EF_new:.2f}")
+    print("-" * 30)
 
+# TODO: Rework this using with con, s.t. all db changes are handled in a single transaction and thus rolled back if failed.
 @app.command(name="rm-entry")
 def rm_entry(entry_id: int) -> None:
     rec = access.get_entry(entry_id)
@@ -163,31 +172,6 @@ def rm_entry(entry_id: int) -> None:
 
     logging.info(f"Record {entry_id} removed. LC {problem_id} state recalculated.")
 
-def recalc_and_set_problem_state(problem_id: int) -> None:
-    """Recompute SM-2 state, last/next review from this problem's records."""
-    # [(id, confidence, ts)]
-    records: List[Tuple[int, int, int]] = access.get_all_entries_by_problem_id(problem_id)
-
-    if not records: # Reset to default state
-        now = int(datetime.datetime.now().timestamp())
-        n, EF, I = 0, 2.5, 0.0
-        last_review_at = 0
-        next_review_at = now
-        access.update_SM2_state(problem_id, n, EF, I, last_review_at, next_review_at)
-        return
-
-    records.sort(key=lambda x: x[2])  # ts asc
-
-    n, EF, I = 0, 2.5, 0.0
-    last_ts = 0
-    for _, conf, ts in records:
-        n, EF, I = SM2(conf, n, EF, I)
-        last_ts = ts
-
-    last_review_at = last_ts
-    next_review_at = last_ts + int(round(I * 86400))
-
-    access.update_SM2_state(problem_id, n, EF, I, last_review_at, next_review_at)
 
 if __name__ == "__main__":
     app()
