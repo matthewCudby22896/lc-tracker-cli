@@ -97,8 +97,7 @@ def activate(id: int) -> None:
         print(f"No problem found with id: {id}")
         return
 
-    colors = {"Easy": "92", "Medium": "93", "Hard": "91"}
-    color_code = colors.get(problem.difficulty_txt, "37")
+    color_code = colours.get(problem.difficulty_txt, "37")
 
     if problem.active:
         print(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is already in the active study set.")
@@ -140,12 +139,8 @@ def details(id: int) -> None:
         print(f"No problem found with id: {id}")
         return
 
-
-    # Explicit Styles
     BW = "\033[1;37m"        # Bold White
     RESET = "\033[0m"        # Full Reset
-    
-    # Difficulty Colors
     color_code = colours.get(problem.difficulty_txt, "37")
     diff_color = f"\033[{color_code}m"
 
