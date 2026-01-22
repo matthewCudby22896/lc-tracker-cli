@@ -1,11 +1,42 @@
 import sqlite3
 import os
-import datetime
 from pathlib import Path
 from typing import Dict, Tuple, List, Any, Optional
 import logging
+from dataclasses import dataclass
 
 from .lc_client import fetch_all_problems
+
+@dataclass
+class Problem:
+    id: int
+    slug : str
+    title : str
+    difficulty : int
+    difficulty_txt : str
+    last_review_at : Optional[int]
+    next_review_at : int
+    ef : float
+    i : int
+    n : int
+    active : bool
+
+    @classmethod
+    def from_row(cls, row: tuple):
+        return cls(
+            id=row[0],
+            slug=row[1],
+            title=row[2],
+            difficulty=row[3],
+            difficulty_txt=INT_TO_DIFF[row[3]],
+            last_review_at=row[4],
+            next_review_at=row[5],
+            ef=row[6],
+            i=row[7],
+            n=row[8],
+            active=bool(row[9])
+        )
+
 
 def get_data_dir():
     # Priority: Environment variable -> Default XDF Path -> Home fallback
@@ -152,21 +183,38 @@ DB_FILE = DATA_DIR / "database.db"
     
 #     return cur.fetchall()
 
-def get_title_slug_from_id(id : int) -> Optional[str]:
+def get_problem(id: int) -> Optional[Problem]:
     con = get_db_connection()
     cur = con.cursor()
-    cur.execute("select slug from problems where id = ?", (id, ))
-    row : optional[tuple] = cur.fetchone()
-    if row:
-        return row[0]
-    else:
-        return none
     
+    try:
+        cur.execute("SELECT * FROM problems WHERE id = ?", (id,))
+        row = cur.fetchone()
+        
+        if row is None:
+            return None
+            
+        return Problem.from_row(row)
+        
+    finally:
+        con.close()
+    
+def set_active(id: int, active: bool) -> None:  
+    con = get_db_connection()
+    try:
+        with con:
+            cur = con.cursor()
+            cur.execute(
+                "UPDATE problems SET active = ? WHERE id = ?", 
+                (active, id)
+            )
+    finally:
+        con.close()
+
 def get_db_connection() -> sqlite3.Connection:
     con = sqlite3.connect(DB_FILE)
     con.execute("PRAGMA foreign_keys = ON;")
     return con
-
 
 def db_exists() -> bool:
     return os.path.exists(DB_FILE)

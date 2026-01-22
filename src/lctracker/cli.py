@@ -49,23 +49,70 @@ def test():
     """
     print("test()")
 
-@app.command(name="add")
+@app.command(name="activate")
 def activate(id: int) -> None:
-    # Query the id_to_slug table for the specified id
-    access.get_p
+    """ Add a problem to the active study set.
+    """
+    problem = access.get_problem(id)
+    if not problem:
+        print("No problem found with id: {id}")
+        return
 
-    return
+    if problem.active:
+        print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] is already in the active study set.")
+        return
 
+    access.set_active(id, True)
 
-@app.command(name="rm-problem")
-def rm_problem(number: int) -> None:
-    if not access.problem_exists(number):
-        logging.error(f"LC {number} was not found.")
-        sys.exit(1)
+    print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] added to active study set.")
 
-    access.del_problem(number)
+@app.command(name="deactivate")
+def deactivate(id: int) -> None:
+    """ Remove a problem from the active study set.
+    """
+    problem = access.get_problem(id)
+    if not problem:
+        print("No problem found with id: {id}")
+        return
+    
+    if not problem.active:
+        print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] is not in the active study set.")
 
-    logging.info(f"LC {number} removed.")
+    access.set_active(id, False)
+
+    print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] removed from active study set.")
+
+@app.command(name="details")
+def details(id: int) -> None:
+    problem = access.get_problem(id)
+    if not problem: 
+        print(f"No problem found with id: {id}")
+        return
+
+    def fmt_date(ts):
+        return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M') if ts else "Never"
+
+    print("\n" + "="*50)
+    print(f" PROBLEM DETAILS: #{problem.id}")
+    print("="*50)
+    
+    print(f"{'Title:':<15} {problem.title}")
+    print(f"{'Slug:':<15} {problem.slug}")
+    print(f"{'Difficulty:':<15} {problem.difficulty_txt} ({problem.difficulty})")
+    print(f"{'Status:':<15} {'[ ACTIVE ]' if problem.active else '[ INACTIVE ]'}")
+    
+    print("-" * 50)
+    print(" SPACED REPETITION (SM-2) STATS")
+    print("-" * 50)
+    
+    print(f"{'Last Review:':<15} {fmt_date(problem.last_review_at)}")
+    print(f"{'Next Review:':<15} {fmt_date(problem.next_review_at)}")
+    print(f"{'Interval (I):':<15} {problem.i} days")
+    print(f"{'Repetitions (n):':<15} {problem.n}")
+    print(f"{'Easiness (EF):':<15} {problem.ef:.2f}")
+    
+    print("="*50 + "\n")
+
 
 @app.command(name="add-record")
 def add_record(
