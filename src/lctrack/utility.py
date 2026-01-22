@@ -1,6 +1,7 @@
+from dataclasses import dataclass
 import datetime
 import logging
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from . import access
 from .sm2 import SM2
@@ -17,6 +18,36 @@ INT_TO_DIFF = {
     1 : "Medium",
     0 : "Easy"
 }
+
+@dataclass
+class Problem:
+    id: int
+    slug : str
+    title : str
+    difficulty : int
+    difficulty_txt : str
+    last_review_at : Optional[int]
+    next_review_at : int
+    ef : float
+    i : int
+    n : int
+    active : bool
+
+    @classmethod
+    def from_row(cls, row: tuple):
+        return cls(
+            id=row[0],
+            slug=row[1],
+            title=row[2],
+            difficulty=row[3],
+            difficulty_txt=INT_TO_DIFF[row[3]],
+            last_review_at=row[4],
+            next_review_at=row[5],
+            ef=row[6],
+            i=row[7],
+            n=row[8],
+            active=bool(row[9])
+        )
 
 def recalc_and_set_problem_state(problem_id: int) -> None:
     """Recompute SM-2 state, last/next review from this problem's records."""

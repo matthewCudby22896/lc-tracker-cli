@@ -1,26 +1,25 @@
 import re
 import logging
 import datetime
-from enum import Enum
 import typer
 import click
+import random
 
+from .ds import Problem
 from .utility import recalc_and_set_problem_state
-
+from .sm2 import SM2 
 from . import access
-from .sm2 import SM2  # ensure this exists
 
 from typing import Dict, Tuple, List
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
 
-class Difficulty(str, Enum):
-    easy = "easy"
-    medium = "medium"
-    hard = "hard"
-
-DIFF_TO_INT = {"easy": 0, "medium": 1, "hard": 2}
+colors = {
+    "Easy": "92",
+    "Medium": "93",
+    "Hard": "91"
+}
 
 @app.callback()
 def main():
@@ -47,6 +46,48 @@ def test():
     For development purposes.
     """
     print("test()")
+
+@app.command(name="study")
+def study():
+    problems : List[Problem] = access.get_for_review_problems()
+
+    chosen = random.choice(problems)
+
+    print(f"\033[1mLC{chosen.id}. {chosen.title} [{chosen.difficulty_txt}]\033[0m")
+
+@app.command(name="study")
+def study():
+    problems = access.get_for_review_problems()
+
+    if not problems:
+        print("No problems due for review.")
+        return
+
+    chosen = random.choice(problems)
+
+    
+    color_code = colors.get(chosen.difficulty_txt, "37")
+
+    # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
+    print(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
+
+@app.command(name="show-active")
+def show_active():
+    """ List all problems currently in the active study set. """
+    active_problems = access.get_active()
+
+    if not active_problems:
+        print("Your active study set is empty. Use 'lc-track activate <id>' to add some!")
+        return
+
+
+    print(f"\033[1mActive Study Set ({len(active_problems)} problems)\033[0m")
+    
+    for p in active_problems:
+        color_code = colors.get(p.difficulty_txt, "37")
+
+        # Using :<4 to align IDs so the titles start at the same spot
+        print(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m] \033[1m\033[0m")
 
 @app.command(name="activate")
 def activate(id: int) -> None:
@@ -121,12 +162,7 @@ def add_entry(
     id: int,
     confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=click.IntRange(0, 5)),
 ) -> None:
-    """
-        Log a completion and update the Spaced Repetition (SM-2) schedule.
-
-        This command records a new study session for a specific problem, updates 
-        the internal Easiness Factor (EF), and calculates the next review date 
-        based on your confidence level.
+    """ Log a completion and update the SM-2 state.
     """
     now_unix_ts = int(datetime.datetime.now().timestamp())
 
@@ -159,6 +195,8 @@ def add_entry(
 # TODO: Rework this using with con, s.t. all db changes are handled in a single transaction and thus rolled back if failed.
 @app.command(name="rm-entry")
 def rm_entry(entry_id: int) -> None:
+    """ Remove an entry and update the SM2 state.
+    """
     rec = access.get_entry(entry_id)
     if rec is None:
         print(f"No record exists with id={entry_id}")
@@ -166,9 +204,42 @@ def rm_entry(entry_id: int) -> None:
 
     _, problem_id, *_ = rec
 
-    access.del_entry(entry_id)
+    con = access.get_db_connection()
+    try:
+        with con:
+            # Delete the entry
+            cur = con.cursor()
+            cur.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
 
-    recalc_and_set_problem_state(problem_id)
+            # Get all of the entries for the problem_id
+            cur.execute("SELECT (id, confidence, ts) FROM entries WHERE problem_id = ?", (problem_id,))
+            entries = cur.fetchall()
+
+            if not entries:     
+                now = int(datetime.datetime.now().timestamp())
+                n, EF, I = 0, 2.5, 0.0
+                last_review_at = 0
+                next_review_at = 0
+            else:
+                entries.sort(key=lambda x: x[2])  # ts asc
+                last_ts = 0
+                for _, conf, ts in entries:
+                    n, EF, I = SM2(conf, n, EF, I)
+                    last_ts = ts
+                last_review_at = last_ts
+                next_review_at = last_ts + int(round(I * 86400))
+            
+            cur.execute("""
+                UPDATE problems
+                SET n = ?,
+                    ef = ?,
+                    i = ?,
+                    last_review_at = ?,
+                    next_review_at = ?
+                WHERE id = ?
+            """, (n, EF, I, int(last_review_at), int(next_review_at), ts))
+    finally:
+        con.close()
 
     logging.info(f"Record {entry_id} removed. LC {problem_id} state recalculated.")
 

@@ -1,3 +1,4 @@
+import datetime
 import sqlite3
 import os
 from pathlib import Path
@@ -5,37 +6,8 @@ from typing import Dict, Tuple, List, Any, Optional
 import logging
 from dataclasses import dataclass
 
+from .ds import Problem
 from .lc_client import fetch_all_problems
-
-@dataclass
-class Problem:
-    id: int
-    slug : str
-    title : str
-    difficulty : int
-    difficulty_txt : str
-    last_review_at : Optional[int]
-    next_review_at : int
-    ef : float
-    i : int
-    n : int
-    active : bool
-
-    @classmethod
-    def from_row(cls, row: tuple):
-        return cls(
-            id=row[0],
-            slug=row[1],
-            title=row[2],
-            difficulty=row[3],
-            difficulty_txt=INT_TO_DIFF[row[3]],
-            last_review_at=row[4],
-            next_review_at=row[5],
-            ef=row[6],
-            i=row[7],
-            n=row[8],
-            active=bool(row[9])
-        )
 
 
 def get_data_dir():
@@ -53,6 +25,44 @@ def get_data_dir():
 
 DATA_DIR = get_data_dir()
 DB_FILE = DATA_DIR / "database.db"
+
+def get_for_review_problems() -> List[Problem]:
+    now = int(datetime.datetime.now().timestamp())
+
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+
+        cur.execute("""
+            SELECT * FROM problems
+            WHERE next_review_at <= ? 
+            AND active = 1
+        """, (now, ))
+        
+        for_review = [Problem.from_row(x) for x in  cur.fetchall()]
+
+        return for_review
+
+    except Exception as e:
+        logging.error(f"Error occured whilst attempting to fetch all 'for review' problems : {e}")
+        
+    finally:
+        con.close()
+
+def get_active() -> List[Problem]:
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+
+        cur.execute("SELECT * FROM problems WHERE active = 1")
+
+        active = [Problem.from_row(x) for x in cur.fetchall()]
+
+        return active
+    except Exception as e:
+        logging.error(f"Error occured whilst attempting to fetch all 'active' problems : {e}")
+    finally:
+        con.close()
 
 def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : int, next_review_at : int) -> None:
     con = get_db_connection()
@@ -254,56 +264,4 @@ def insert_problems(con : sqlite3.Connection, problems : List[Tuple[int, str]]):
 
 def set_state(con, key: str, value: str) -> None:
     con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
-
-# TODO: Move to suitable place
-DIFF_TO_INT = {
-    "Hard" : 2, 
-    "Medium" : 1,
-    "Easy" : 0
-}
-
-INT_TO_DIFF = {
-    2 : "Hard",
-    1 : "Medium",
-    0 : "Easy"
-}
-
-# TODO: Move to suitable loc
-def initial_sync() -> None:
-    problems_raw = fetch_all_problems()
-    
-    try:
-        problems = [
-            (x['questionFrontendId'], x['titleSlug'], x['title'], DIFF_TO_INT[x['difficulty']])
-            for x in problems_raw
-        ]
-
-        topics = {(t['slug'], t['name']) for p in problems_raw for t in p['topicTags']}
-
-        problem_topics = [(p['questionFrontendId'], t['slug']) for p in problems_raw for t in p['topicTags']]
-
-    except Exception as e:
-        logging.error(f"Failed to parse problem set fetched from leetcode.com: {e}")
-        return
-
-    con = get_db_connection()
-    try:
-        with con:
-            cur = con.cursor()
-            
-            stmt = "INSERT INTO problems (id, slug, title, difficulty) VALUES (?, ?, ?, ?);"
-            cur.executemany(stmt, problems)
-
-            stmt = "INSERT INTO topics (topic_slug, topic_title) VALUES (?, ?);"
-            cur.executemany(stmt, topics)
-
-            stmt = "INSERT INTO problem_topic (problem_id, topic_slug) VALUES (?, ?);"
-            cur.executemany(stmt, problem_topics)
-            
-            set_state(con, "initial_sync", "complete")
-        
-    except Exception as e:
-        logging.error(f"Failed to sync problem set with leetcode.com: {e}")
-    finally:
-        con.close()
 
