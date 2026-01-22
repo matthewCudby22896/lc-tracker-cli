@@ -2,7 +2,7 @@
 import requests
 import logging
 
-from typing import Dict, Tuple, List
+from typing import Any, Dict, Tuple, List
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -18,65 +18,99 @@ session.headers.update({
     "Referer": "https://leetcode.com"
 })
 
-def fetch_all_problems() -> List[Tuple[int, str]]:
-    """
-    Makes a request to a public leetcode endpoint to retrieve all problem-slugs, and numbers.
+# def fetch_all_problems() -> List[Tuple[int, str]]:
+#     """
+#     Makes a request to a public leetcode endpoint to retrieve all problem-slugs, and numbers.
 
-    Returns dict that maps problem number -> title slug, which can in turn be used
-    to request the details of a problem via a graphQL endpoint.
-    """
-    try:
-        res = session.get(ALL_PROBLEMS_URL)
-        res.raise_for_status()
-        data = res.json()['stat_status_pairs']
+#     Returns dict that maps problem number -> title slug, which can in turn be used
+#     to request the details of a problem via a graphQL endpoint.
+#     """
+#     try:
+#         res = session.get(ALL_PROBLEMS_URL)
+#         res.raise_for_status()
+#         data = res.json()['stat_status_pairs']
 
-        id_to_title_slug_map = [
-            (int(entry['stat']['frontend_question_id']), entry['stat']['question__title_slug'])
-            for entry 
-            in data
-        ]
+#         id_to_title_slug_map = [
+#             (int(entry['stat']['frontend_question_id']), entry['stat']['question__title_slug'])
+#             for entry 
+#             in data
+#         ]
 
-    except Exception as e:
-        # Adding context and rethrowing the original error
-        raise RuntimeError(f"Failed to fetch up-to-date id->slug data LeetCode: {e}") from e
+#     except Exception as e:
+#         # Adding context and rethrowing the original error
+#         raise RuntimeError(f"Failed to fetch up-to-date id->slug data LeetCode: {e}") from e
 
-    return id_to_title_slug_map
+#     return id_to_title_slug_map
 
-def request_problem_details(slug : str):
-    # The standard 'questionData' query used by the LeetCode frontend
-    graphql_query = {
-        "query": """
-        query questionData($titleSlug: String!) {
-            question(titleSlug: $titleSlug) {
-                questionFrontendId
-                title
-                difficulty
-                topicTags {
-                    name
-                    slug
-                }
-            }
+
+def fetch_all_problems() -> List[Dict[str, Any]]: 
+    url = "https://leetcode.com/graphql/"
+    limit = 100
+    skip = 0
+    
+    query = """
+    query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+      problemsetQuestionList: questionList(
+        categorySlug: $categorySlug
+        limit: $limit
+        skip: $skip
+        filters: $filters
+      ) {
+        totalNum
+        questions: data {
+          questionFrontendId
+          title
+          titleSlug
+          difficulty
+          topicTags {
+            name
+            slug
+          }
         }
-        """,
-        "variables": {"titleSlug": slug}
+      }
     }
+    """
 
+    all_questions = []
+    payload = {
+        "query" : query,
+        "variables" : {"categorySlug": "", "skip": skip, "limit": limit, "filters": {}}
+    }
+    total = None
+
+    logging.info("Fetching complete problem set from leetcode.com ...")
     try:
-        res = session.post(GRAPHQL_ENDPOINT, json=graphql_query)
-        res.raise_for_status()
-        data = res.json().get('data', {}).get('question')
-        title = data.get('title')
-        diff = data.get('difficulty')
-        topics : List[Tuple[str, str]]= [(x['name'], x['slug']) for x in data.get('topicTags')]
+        while True:
+            payload['variables']['skip'] = skip
+            res = session.post(url, json=payload)
+            res.raise_for_status()
 
-        print("-" * 30)
-        print(f"TITLE:      {title}")
-        print(f"DIFFICULTY: {diff}")
-        print(f"TOPICS:     {', '.join([x[0] for x in topics])}")
-        print("-" * 30)
+            data = res.json()
+
+            if total is None:
+                total = data['data']['problemsetQuestionList']['totalNum'] # The total number of questions
+            
+            # Extract the problems in this batch
+            question_batch = data['data']['problemsetQuestionList']['questions']
+            all_questions.extend(question_batch)
+
+            pct_complete = min(skip + limit, total) / total
+            logging.info(f"Progress: {min(skip + limit, total)}/{total} problems fetched ({pct_complete:.1%})")
+
+            if skip + limit > total:
+                break
+                
+            skip += limit
 
     except Exception as e:
-        pass
+        logging.error(f"Failed to fetch problem set from leetcode.com: {e}")
+        return None
+    
+    logging.info(f"{len(all_questions)} problems fetched.")
+
+    return all_questions
+
+
 
 
 

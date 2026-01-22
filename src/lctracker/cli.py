@@ -42,11 +42,18 @@ def slugify_title(title: str) -> str:
 def fmt(ts: int) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
+@app.command(name="test")
+def test():
+    """
+    For development purposes
+    """
+    print("test()")
+
 @app.command(name="add-problem")
 def add_problem(id: int) -> None:
     # Query the id_to_slug table for the specified id
-    # access.get_title_slug_from_id(id)
-    
+    access.get_p
+
     return
 
     access.insert_problem(number, title, DIFF_TO_INT[difficulty.value], url)
@@ -133,38 +140,39 @@ def recalc_and_set_problem_state(number: int) -> None:
 
     access.update_problem_state(number, n, EF, I, last_review_at, next_review_at)
 
-@app.command(name="sync-problem-ids")
-def sync_id_to_slug_table():
-    con = access.get_db_connection()
-    cur = con.cursor()
+# @app.command(name="sync-problem-ids")
+# def sync_id_to_slug_table():
+#     con = access.get_db_connection()
+#     cur = con.cursor()
 
-    try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS id_to_slug (
-                id INTEGER PRIMARY KEY,
-                slug TEXT NOT NULL
-            )
-        """) 
+#     try:
+#         cur.execute("""
+#             CREATE TABLE IF NOT EXISTS id_to_slug (
+#                 id INTEGER PRIMARY KEY,
+#                 slug TEXT NOT NULL
+#             )
+#         """) 
 
-        id_to_slug_map : Dict[int, str] = fetch_all_problems()
+#         id_to_slug_map : Dict[int, str] = fetch_all_problems()
         
-        # If the above succeeds, proceed with the update
-        cur.execute("DELETE FROM id_to_slug") 
+#         # If the above succeeds, proceed with the update
+#         cur.execute("DELETE FROM id_to_slug") 
 
-        insert_data = [
-            (prob_id, slug)
-            for prob_id, slug in id_to_slug_map.items()
-        ]
+#         insert_data = [
+#             (prob_id, slug)
+#             for prob_id, slug in id_to_slug_map.items()
+#         ]
 
-        # Bulk insert
-        cur.executemany("INSERT INTO id_to_slug (id, slug) VALUES (?, ?)", insert_data)
+#         # Bulk insert
+#         cur.executemany("INSERT INTO id_to_slug (id, slug) VALUES (?, ?)", insert_data)
 
-        con.commit()
-        logging.info(f"Sync of id_to_slug table complete. {len(insert_data)} problems saved.")
+#         con.commit()
+#         logging.info(f"Sync of id_to_slug table complete. {len(insert_data)} problems saved.")
 
-    except Exception as e:
-        con.rollback()
-        logging.error(f"Sync of id_to_slug table failed. For reason {e}")
+#     except Exception as e:
+#         con.rollback()
+#         logging.error(f"Sync of id_to_slug table failed. For reason {e}")
+
 
 if __name__ == "__main__":
     app()

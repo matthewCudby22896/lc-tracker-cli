@@ -40,8 +40,8 @@
 CREATE TABLE problems (
     id INTEGER PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
-    title TEXT NOT NULL,
-    difficulty INTEGER NOT NULL CHECK
+    title TEXT,
+    difficulty INTEGER NOT NULL CHECK,
     last_review_at INTEGER,
     next_review_at INTEGER NOT NULL,
 

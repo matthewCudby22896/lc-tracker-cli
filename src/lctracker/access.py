@@ -2,7 +2,7 @@ import sqlite3
 import os
 import datetime
 from pathlib import Path
-from typing import Tuple, List, Any, Optional
+from typing import Dict, Tuple, List, Any, Optional
 import logging
 
 from .lc_client import fetch_all_problems
@@ -152,16 +152,16 @@ DB_FILE = DATA_DIR / "database.db"
     
 #     return cur.fetchall()
 
-# def get_title_slug_from_id(id : int) -> Optional[str]:
-#     con = get_db_con()
-#     cur = con.cursor()
-#     cur.execute("SELECT slug FROM problems WHERE id = ?", (id, ))
-#     row : Optional[tuple] = cur.fetchone()
-#     if row:
-#         return row[0]
-#     else:
-#         return None
-
+def get_title_slug_from_id(id : int) -> Optional[str]:
+    con = get_db_connection()
+    cur = con.cursor()
+    cur.execute("select slug from problems where id = ?", (id, ))
+    row : optional[tuple] = cur.fetchone()
+    if row:
+        return row[0]
+    else:
+        return none
+    
 def get_db_connection() -> sqlite3.Connection:
     con = sqlite3.connect(DB_FILE)
     con.execute("PRAGMA foreign_keys = ON;")
@@ -181,7 +181,7 @@ def init_db() -> None:
         id INTEGER PRIMARY KEY,
         slug TEXT NOT NULL UNIQUE, 
         title TEXT,
-        difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 3),
+        difficulty INTEGER CHECK (difficulty BETWEEN 0 AND 2),
         last_review_at INTEGER,
         next_review_at INTEGER DEFAULT 0,
         EF REAL DEFAULT 2.5,
@@ -232,11 +232,7 @@ def get_state(key : str) -> Optional[str]:
         con.close()
 
 def set_state(con, key: str, value: str) -> None:
-    try:
-        con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
-        con.commit()
-    finally:
-        con.close()
+    con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
 
 def insert_problems(con : sqlite3.Connection, problems : List[Tuple[int, str]]):
     """ Batch inserts the lc problems (id, slug) into the problems table.
@@ -252,22 +248,43 @@ def set_state(con, key: str, value: str) -> None:
     # Just execute the command. Do NOT commit or close here.
     con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
 
-def initial_sync():
-    problems = fetch_all_problems()
+# TODO: Move to suitable place
+DIFF_TO_INT = {
+    "Hard" : 2, 
+    "Medium" : 1,
+    "Easy" : 0
+}
+
+INT_TO_DIFF = {
+    2 : "Hard",
+    1 : "Medium",
+    0 : "Easy"
+}
+
+def initial_sync() -> None:
+    problems_raw = fetch_all_problems()
     
-    # We open it once here
+    try:
+        problems = [
+            (x['questionFrontendId'], x['titleSlug'], x['title'], DIFF_TO_INT[x['difficulty']])
+            for x in problems_raw
+        ]
+    except Exception as e:
+        logging.error(f"Failed to parse problem set fetched from leetcode.com: {e}")
+        return
+
     con = get_db_connection()
     try:
-        # 'with con' handles the BEGIN and COMMIT/ROLLBACK
         with con:
-            insert_problems(con, problems)  
-            set_state(con, "initial_sync", "complete")
+            cur = con.cursor()
             
-        logging.info("Initial sync successful.")
+            stmt = "INSERT INTO problems (id, slug, title, difficulty) VALUES (?, ?, ?, ?);"
+            cur.executemany(stmt, problems)
+            
+            set_state(con, "initial_sync", "complete")
+        
     except Exception as e:
-        logging.error(f"Error during initial sync: {e}")
+        logging.error(f"Failed to sync problem set with leetcode.com: {e}")
     finally:
-        # We close it once here, at the very end
         con.close()
-
 
