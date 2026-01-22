@@ -77,6 +77,7 @@ def deactivate(id: int) -> None:
     
     if not problem.active:
         print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] is not in the active study set.")
+        return
 
     access.set_active(id, False)
 
