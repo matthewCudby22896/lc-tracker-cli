@@ -54,134 +54,94 @@ def get_data_dir():
 DATA_DIR = get_data_dir()
 DB_FILE = DATA_DIR / "database.db"
 
-# def insert_problem(number : int,
-#                    title : str,
-#                    difficulty : int,
-#                    url : str) -> None:    
-#     """Inserts / updates lc problem info.
+def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : int, next_review_at : int) -> None:
+    con = get_db_connection()
 
-#     If the problem already exists, only the title, difficulty, and url are updated."""
-#     cur = CON.cursor()
-#     now_unix_ts = int(datetime.datetime.now().timestamp())    
-#     CON.execute("""
-#         INSERT INTO problems (number, title, difficulty, url, last_review_at, next_review_at)        
-#         VALUES (?, ?, ?, ?, NULL, ?)
-#         ON CONFLICT(number) DO UPDATE SET
-#             title = excluded.title,
-#             difficulty = excluded.difficulty,
-#             url = excluded.url
-#         """, 
-#         (number, title, difficulty, url, now_unix_ts)
-#     )
-#     CON.commit()
+    try:
+        with con:
+            cur = con.cursor()
 
-# def del_problem(number : int) -> None:
-#     cur = CON.cursor()
+            cur.execute("""
+                UPDATE problems
+                SET n = ?,
+                    ef = ?,
+                    i = ?,
+                    last_review_at = ?,
+                    next_review_at = ?
+                WHERE id = ?
+            """, (n, EF, I, int(last_review_at), int(next_review_at), id))
+    finally:
+        con.close()
 
-#     cur.execute("""
-#         DELETE FROM problems
-#         WHERE number = ?;
-#     """, (number,))
+def insert_entry(problem_id: int, confidence: int, ts: int) -> int:
+    con = get_db_connection()
+    try:
+        with con:
+            cur = con.cursor()
+
+            # Here we omit 'id' from the columns so SQLite auto-generates it
+            cur.execute(
+                """
+                INSERT INTO entries (problem_id, confidence, ts) 
+                VALUES (?, ?, ?)
+                """,
+                (problem_id, confidence, ts)
+            )
+
+            # Fetch the ID of the record just created
+            record_id = cur.lastrowid
+            return record_id
+
+    finally:
+        con.close()
+
+def del_entry(entry_id : int) -> None:
+    """Delete entry by id."""
+    con = get_db_connection()
+    try:
+        with con:
+            cur = con.cursor()
+            cur.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+    finally:
+        con.close()
+
+def get_entry(entry_id: int) -> Optional[Tuple[int, int, int, int]]:
+    con = get_db_connection()
     
-#     CON.commit()
+    try:
+        with con:
+            cur = con.cursor()
 
-# def problem_exists(number : int) -> bool:
-#     cur = CON.cursor()
-#     cur.execute("SELECT 1 FROM problems WHERE number = ? LIMIT 1", (number,))
-#     return cur.fetchone() is not None
+            cur.execute("""
+                SELECT id, problem_id, confidence, ts  
+                FROM entries
+                WHERE id = ?
+            """, (entry_id,))
 
-# def entry_exists(id : int) -> bool:
-#     cur = CON.cursor()
-#     cur.execute("SELECT 1 FROM records WHERE id = ? LIMIT 1", (id,))
-#     return cur.fetchone() is not None
- 
-# def insert_record(number : int,
-#                   confidence : int,
-#                   ts : int) -> None:
-#     cur = CON.cursor()
+            row : Optional[Tuple[int, int, int, int]] = cur.fetchone()
 
-#     cur.execute(
-#         """
-#         INSERT INTO records (problem_num, confidence, ts) 
-#         VALUES  (?, ?, ?, ?)
-#         """
-#     , (number, confidence, ts))
+        return row
 
-#     record_id = cur.lastrowid
+    finally:
+        con.close()
 
-#     CON.commit()
-
-#     return record_id
-
-# def get_problem_state(number : int) -> Tuple[int, float, int]:
-#     """Get SM2 problem state.
+def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[int, int, int]]:
+    con = get_db_connection()
     
-#     n : streak (number of times the question was completed succesfully)
-#     EF : easiness factor
-#     I : interval 
-#     """
-#     cur = CON.cursor()
-    
-#     cur.execute("""
-#         SELECT n, EF, I  FROM problems
-#         WHERE number = ?
-#         LIMIT 1
-#     """, (number,))
-    
-#     row = cur.fetchone()
-#     if row is None:
-#         raise Exception(f"No problem exists with number={number}")
-    
-#     n, EF, I = row
+    try:
+        cur = con.cursor()
+        
+        cur.execute("""
+            SELECT id, confidence, ts  
+            FROM entries
+            WHERE problem_id = ?
+        """, (problem_id,))
 
-#     return n, EF, I
+        return cur.fetchall()
 
-# def update_problem_state(number : int, n : int, EF : float, I : int, last_review_at : int, next_review_at : int) -> None:
-#     cur = CON.cursor()
-
-#     cur.execute("""
-#         UPDATE problems
-#         SET n = ?,
-#             EF = ?,
-#             I = ?,
-#             last_review_at = ?,
-#             next_review_at = ?
-#         WHERE number = ?
-#     """, (n, EF, I, int(last_review_at), int(next_review_at), number))
-
-#     CON.commit()
-
-# def del_record(id : int) -> None:
-#     """Delete record by id."""
-#     cur = CON.cursor()
+    finally:
+        con.close()
     
-#     cur.execute("DELETE FROM records WHERE id = ?", (id,))
-
-#     CON.commit()
-
-# def get_record(id: int) -> Optional[Tuple[int, int, int, int]]:
-#     cur = CON.cursor()
-    
-#     cur.execute("""
-#         SELECT id, problem_num, confidence, ts  
-#         FROM records
-#         WHERE id = ?
-#     """, (id,))
-    
-#     row : Optional[Tuple[int, int, int, int]] = cur.fetchone()
-    
-#     return row
-
-# def get_all_records_by_problem(number : int) -> List[Tuple[int, int, int]]:
-#     cur = CON.cursor()
-    
-#     cur.execute("""
-#         SELECT id, confidence, ts  
-#         FROM records
-#         WHERE problem_num = ?
-#     """, (number,))
-    
-#     return cur.fetchall()
 
 def get_problem(id: int) -> Optional[Problem]:
     con = get_db_connection()
@@ -293,7 +253,6 @@ def insert_problems(con : sqlite3.Connection, problems : List[Tuple[int, str]]):
     cur.executemany(stmt, problems)
 
 def set_state(con, key: str, value: str) -> None:
-    # Just execute the command. Do NOT commit or close here.
     con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
 
 # TODO: Move to suitable place

@@ -115,61 +115,65 @@ def details(id: int) -> None:
     print("="*50 + "\n")
 
 
-@app.command(name="add-record")
-def add_record(
-    number: int,
+@app.command(name="add-entry")
+def add_entry(
+    id: int,
     confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=IntRange(0, 5)),
 ) -> None:
     now_unix_ts = int(datetime.datetime.now().timestamp())
 
-    if not access.problem_exists(number):
-        logging.error(f"LC {number} was not found.")
+    problem = access.get_problem(id) 
+    if not problem:
+        print(f"No problem found with id: {id}")
         raise typer.Exit(code=1)
 
-    record_id = access.insert_record(number, confidence, now_unix_ts)
+    # 1. Save the record
+    record_id = access.insert_entry(id, confidence, now_unix_ts)
 
-    n, EF, I = access.get_problem_state(number)
+    # 2. Get the problems current SM-2 state 
+    n, EF, I = problem.n, problem.ef, problem.i
 
+    # 3. Calculate the new SM2 state
     n_new, EF_new, I_new = SM2(confidence, n, EF, I)
     next_review_at = now_unix_ts + int(I_new * 86400)
 
-    access.update_problem_state(number, n_new, EF_new, I_new, now_unix_ts, next_review_at)
+    access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
 
-    logging.info(
+    print(
         f"New record added (ID {record_id}):\n"
-        f"  LC Number       : {number}\n"
+        f"  LC Number       : {id}\n"
         f"  Confidence      : {confidence}\n"
         f"  Last Review At  : {fmt(now_unix_ts)}\n"
         f"  Next Review At  : {fmt(next_review_at)}\n"
         f"  SM-2 State -> n: {n_new}, EF: {EF_new:.4f}, I: {I_new:.3f} days"
     )
 
-@app.command(name="rm-record")
-def rm_record(record_id: int) -> None:
-    rec = access.get_record(record_id)
+@app.command(name="rm-entry")
+def rm_entry(entry_id: int) -> None:
+    rec = access.get_entry(entry_id)
     if rec is None:
-        logging.error(f"No record exists with id={record_id}")
+        print(f"No record exists with id={entry_id}")
         raise typer.Exit(code=1)
 
-    _, problem_num, *_ = rec
+    _, problem_id, *_ = rec
 
-    access.del_record(record_id)
+    access.del_entry(entry_id)
 
-    recalc_and_set_problem_state(problem_num)
+    recalc_and_set_problem_state(problem_id)
 
-    logging.info(f"Record {record_id} removed. LC {problem_num} state recalculated.")
+    logging.info(f"Record {entry_id} removed. LC {problem_id} state recalculated.")
 
-def recalc_and_set_problem_state(number: int) -> None:
+def recalc_and_set_problem_state(problem_id: int) -> None:
     """Recompute SM-2 state, last/next review from this problem's records."""
     # [(id, confidence, ts)]
-    records: List[Tuple[int, int, int]] = access.get_all_records_by_problem(number)
+    records: List[Tuple[int, int, int]] = access.get_all_entries_by_problem_id(problem_id)
 
-    if not records:
+    if not records: # Reset to default state
         now = int(datetime.datetime.now().timestamp())
         n, EF, I = 0, 2.5, 0.0
-        last_review_at = None
+        last_review_at = 0
         next_review_at = now
-        access.update_problem_state(number, n, EF, I, last_review_at, next_review_at)
+        access.update_SM2_state(problem_id, n, EF, I, last_review_at, next_review_at)
         return
 
     records.sort(key=lambda x: x[2])  # ts asc
@@ -183,42 +187,7 @@ def recalc_and_set_problem_state(number: int) -> None:
     last_review_at = last_ts
     next_review_at = last_ts + int(round(I * 86400))
 
-    access.update_problem_state(number, n, EF, I, last_review_at, next_review_at)
-
-# @app.command(name="sync-problem-ids")
-# def sync_id_to_slug_table():
-#     con = access.get_db_connection()
-#     cur = con.cursor()
-
-#     try:
-#         cur.execute("""
-#             CREATE TABLE IF NOT EXISTS id_to_slug (
-#                 id INTEGER PRIMARY KEY,
-#                 slug TEXT NOT NULL
-#             )
-#         """) 
-
-#         id_to_slug_map : Dict[int, str] = fetch_all_problems()
-        
-#         # If the above succeeds, proceed with the update
-#         cur.execute("DELETE FROM id_to_slug") 
-
-#         insert_data = [
-#             (prob_id, slug)
-#             for prob_id, slug in id_to_slug_map.items()
-#         ]
-
-#         # Bulk insert
-#         cur.executemany("INSERT INTO id_to_slug (id, slug) VALUES (?, ?)", insert_data)
-
-#         con.commit()
-#         logging.info(f"Sync of id_to_slug table complete. {len(insert_data)} problems saved.")
-
-#     except Exception as e:
-#         con.rollback()
-#         logging.error(f"Sync of id_to_slug table failed. For reason {e}")
-
+    access.update_SM2_state(problem_id, n, EF, I, last_review_at, next_review_at)
 
 if __name__ == "__main__":
     app()
-
