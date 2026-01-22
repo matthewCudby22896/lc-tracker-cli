@@ -64,15 +64,14 @@ def study():
         return
 
     chosen = random.choice(problems)
-
     
     color_code = colors.get(chosen.difficulty_txt, "37")
 
     # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
     print(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
 
-@app.command(name="show-active")
-def show_active():
+@app.command(name="ls-active")
+def ls_active():
     """ List all problems currently in the active study set. """
     active_problems = access.get_active()
 
@@ -88,6 +87,23 @@ def show_active():
 
         # Using :<4 to align IDs so the titles start at the same spot
         print(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m] \033[1m\033[0m")
+
+@app.command(name="ls-review")
+def ls_for_review():
+    """ List all problems currently due for an SM-2 review. """
+    due_problems = access.get_for_review_problems()
+
+    if not due_problems:
+        print("No problems due for review. You're all caught up!")
+        return
+
+    # Using your bold blue style for the header
+    print(f"\033[1;94mTo review:\033[0m {len(due_problems)} problems pending")
+    
+    for p in due_problems:
+        color_code = colors.get(p.difficulty_txt, "37")
+        # Kept the padding and removed the trailing blue bracket bug
+        print(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m]")
 
 @app.command(name="activate")
 def activate(id: int) -> None:
