@@ -15,11 +15,14 @@ from typing import Dict, Tuple, List
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
 
-colors = {
+colours = {
     "Easy": "92",
     "Medium": "93",
     "Hard": "91"
 }
+
+def fmt_date(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M') if ts else "Never"
 
 @app.callback()
 def main():
@@ -33,30 +36,10 @@ def main():
     if access.get_state("initial_sync") != "complete":
         access.initial_sync()
 
-def slugify_title(title: str) -> str:
-    s = re.sub(r"[^a-z0-9\- ]", "", title.lower())
-    return re.sub(r"\s+", "-", s.strip())
-
-def fmt(ts: int) -> str:
-    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-
-@app.command(name="test")
-def test():
-    """
-    For development purposes.
-    """
-    print("test()")
-
 @app.command(name="study")
 def study():
-    problems : List[Problem] = access.get_for_review_problems()
+    """Picks a random problem those scheduled for review."""
 
-    chosen = random.choice(problems)
-
-    print(f"\033[1mLC{chosen.id}. {chosen.title} [{chosen.difficulty_txt}]\033[0m")
-
-@app.command(name="study")
-def study():
     problems = access.get_for_review_problems()
 
     if not problems:
@@ -65,7 +48,7 @@ def study():
 
     chosen = random.choice(problems)
     
-    color_code = colors.get(chosen.difficulty_txt, "37")
+    color_code = colours.get(chosen.difficulty_txt, "37")
 
     # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
     print(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
@@ -79,11 +62,10 @@ def ls_active():
         print("Your active study set is empty. Use 'lc-track activate <id>' to add some!")
         return
 
-
     print(f"\033[1mActive Study Set ({len(active_problems)} problems)\033[0m")
     
     for p in active_problems:
-        color_code = colors.get(p.difficulty_txt, "37")
+        color_code = colours.get(p.difficulty_txt, "37")
 
         # Using :<4 to align IDs so the titles start at the same spot
         print(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m] \033[1m\033[0m")
@@ -101,77 +83,82 @@ def ls_for_review():
     print(f"\033[1;94mTo review:\033[0m {len(due_problems)} problems pending")
     
     for p in due_problems:
-        color_code = colors.get(p.difficulty_txt, "37")
+        color_code = colours.get(p.difficulty_txt, "37")
         # Kept the padding and removed the trailing blue bracket bug
         print(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m]")
 
+
 @app.command(name="activate")
 def activate(id: int) -> None:
-    """ Add a problem (by it's id) to the 'active' study set.
-    """
+    """ Add a problem (by its id) to the 'active' study set. """
     problem = access.get_problem(id)
+    
     if not problem:
-        print("No problem found with id: {id}")
+        print(f"No problem found with id: {id}")
         return
 
+    colors = {"Easy": "92", "Medium": "93", "Hard": "91"}
+    color_code = colors.get(problem.difficulty_txt, "37")
+
     if problem.active:
-        print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] is already in the active study set.")
+        print(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is already in the active study set.")
         return
 
     access.set_active(id, True)
 
-    print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] added to active study set.")
+    # Bold blue label followed by the colored problem info
+    print(f"\033[1;94mAdded to active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
 
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
-    """ Remove a problem (by it's id) from the 'active' study set.
-    """
+    """ Remove a problem (by its id) from the 'active' study set. """
     problem = access.get_problem(id)
+    
     if not problem:
-        print("No problem found with id: {id}")
+        print(f"No problem found with id: {id}")
         return
+
+    color_code = colours.get(problem.difficulty_txt, "37")
     
     if not problem.active:
-        print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] is not in the active study set.")
+        print(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is not in the active study set.")
         return
 
     access.set_active(id, False)
 
-    print(f"LC {id}. {problem.title} [{problem.difficulty_txt}] removed from active study set.")
+    print(f"\033[1;94mRemoved from active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
+
 
 @app.command(name="details")
 def details(id: int) -> None:
-    """ Show the details of a LC problem.
-    """
+    """ Show the details of a LC problem. """
     problem = access.get_problem(id)
+    # topics is already a list of strings: ["Array", "Hash Table"]
+    topics = access.get_problem_topics(id)
+    
     if not problem: 
         print(f"No problem found with id: {id}")
         return
 
-    def fmt_date(ts):
-        return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M') if ts else "Never"
 
-    print("\n" + "="*50)
-    print(f" PROBLEM DETAILS: #{problem.id}")
-    print("="*50)
+    # Explicit Styles
+    BW = "\033[1;37m"        # Bold White
+    RESET = "\033[0m"        # Full Reset
     
-    print(f"{'Title:':<15} {problem.title}")
-    print(f"{'Slug:':<15} {problem.slug}")
-    print(f"{'Difficulty:':<15} {problem.difficulty_txt} ({problem.difficulty})")
-    print(f"{'Status:':<15} {'[ ACTIVE ]' if problem.active else '[ INACTIVE ]'}")
-    
-    print("-" * 50)
-    print(" SPACED REPETITION (SM-2) STATS")
-    print("-" * 50)
-    
-    print(f"{'Last Review:':<15} {fmt_date(problem.last_review_at)}")
-    print(f"{'Next Review:':<15} {fmt_date(problem.next_review_at)}")
-    print(f"{'Interval (I):':<15} {problem.i} days")
-    print(f"{'Repetitions (n):':<15} {problem.n}")
-    print(f"{'Easiness (EF):':<15} {problem.ef:.2f}")
-    
-    print("="*50 + "\n")
+    # Difficulty Colors
+    color_code = colours.get(problem.difficulty_txt, "37")
+    diff_color = f"\033[{color_code}m"
 
+    print(f"{BW}LC{problem.id}. {problem.title} [{RESET}{diff_color}{problem.difficulty_txt}{RESET}{BW}]{RESET}")
+
+    if topics:
+        print(f"Topics: {', '.join(topics)}")
+    print("")
+    print(f"Last Review: {fmt_date(problem.last_review_at)}")
+    print(f"Next Review: {fmt_date(problem.next_review_at)}")
+    print(f"Interval:    {problem.i:.0f} days")
+    print(f"Repetitions: {problem.n}")
+    print(f"Easiness:    {problem.ef:.2f}\n")
 
 @app.command(name="add-entry")
 def add_entry(
@@ -204,11 +191,10 @@ def add_entry(
     print("-" * 30)
     print(f"{'Problem ID':<15}: {id}")
     print(f"{'Confidence':<15}: {confidence}/5")
-    print(f"{'Next Review':<15}: {fmt(next_review_at)} (in {I_new:.1f} days)")
+    print(f"{'Next Review':<15}: {fmt_date(next_review_at)} (in {I_new:.1f} days)")
     print(f"{'New EF':<15}: {EF_new:.2f}")
     print("-" * 30)
 
-# TODO: Rework this using with con, s.t. all db changes are handled in a single transaction and thus rolled back if failed.
 @app.command(name="rm-entry")
 def rm_entry(entry_id: int) -> None:
     """ Remove an entry and update the SM2 state.

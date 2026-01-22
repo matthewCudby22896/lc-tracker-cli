@@ -155,9 +155,8 @@ def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[int, int, int]
 
 def get_problem(id: int) -> Optional[Problem]:
     con = get_db_connection()
-    cur = con.cursor()
-    
     try:
+        cur = con.cursor()
         cur.execute("SELECT * FROM problems WHERE id = ?", (id,))
         row = cur.fetchone()
         
@@ -168,6 +167,24 @@ def get_problem(id: int) -> Optional[Problem]:
         
     finally:
         con.close()
+
+def get_problem_topics(problem_id : int) -> List[str]:
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        cur.execute("""
+            SELECT t.topic_title
+            FROM problem_topic pt
+            JOIN topics t ON pt.topic_slug = t.topic_slug
+            WHERE pt.problem_id = ?
+        """, (problem_id,))
+
+        return [x[0] for  x in cur.fetchall()]
+    except Exception as e:
+        logging.error(f"Error fetching topics for problem {problem_id}: {e}")
+    finally:
+        con.close()
+    
     
 def set_active(id: int, active: bool) -> None:  
     con = get_db_connection()
