@@ -5,10 +5,10 @@ import typer
 import click
 import random
 
-from .ds import Problem
 from .utility import recalc_and_set_problem_state
 from .sm2 import SM2 
 from . import access
+from . import utility
 
 from typing import Dict, Tuple, List
 
@@ -34,7 +34,7 @@ def main():
         logging.info("lc-track database initialised.") 
 
     if access.get_state("initial_sync") != "complete":
-        access.initial_sync()
+        utility.initial_sync()
 
 @app.command(name="study")
 def study():
@@ -170,7 +170,11 @@ def add_entry(
         raise typer.Exit(code=1)
 
     # 1. Save the record
-    record_id = access.insert_entry(id, confidence, now_unix_ts)
+    try:
+        record_id = access.insert_entry(id, confidence, now_unix_ts)
+    except Exception as exc: 
+        logging.error(f"Failed to insert entry into local database: {exc}")
+        raise typer.Exit(1)
 
     # 2. Get the problems current SM-2 state 
     n, EF, I = problem.n, problem.ef, problem.i
@@ -179,7 +183,12 @@ def add_entry(
     n_new, EF_new, I_new = SM2(confidence, n, EF, I)
     next_review_at = now_unix_ts + int(I_new * 86400)
 
-    access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
+    # 4. Update the state of the problem
+    try:
+        access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
+    except Exception as exc:
+        logging.error(f"Failed to update SM2 state of problem: {exc}")
+        raise typer.Exit(1)
 
     print("-" * 30)
     print(f"Record Saved [ID: {record_id}]")
@@ -191,54 +200,16 @@ def add_entry(
     print("-" * 30)
 
 @app.command(name="rm-entry")
-def rm_entry(entry_id: int) -> None:
+def rm_entry(entry_uuid : str) -> None:
     """ Remove an entry and update the SM2 state.
     """
-    rec = access.get_entry(entry_id)
-    if rec is None:
-        print(f"No record exists with id={entry_id}")
-        raise typer.Exit(code=1)
-
-    _, problem_id, *_ = rec
-
-    con = access.get_db_connection()
     try:
-        with con:
-            # Delete the entry
-            cur = con.cursor()
-            cur.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+        problem_id = access.rm_entry(entry_uuid)
+    except Exception as exc:
+        logging.error(f"Failed to remove entry: {exc}")
+        raise typer.Exit(1)
 
-            # Get all of the entries for the problem_id
-            cur.execute("SELECT (id, confidence, ts) FROM entries WHERE problem_id = ?", (problem_id,))
-            entries = cur.fetchall()
-
-            if not entries:     
-                now = int(datetime.datetime.now().timestamp())
-                n, EF, I = 0, 2.5, 0.0
-                last_review_at = 0
-                next_review_at = 0
-            else:
-                entries.sort(key=lambda x: x[2])  # ts asc
-                last_ts = 0
-                for _, conf, ts in entries:
-                    n, EF, I = SM2(conf, n, EF, I)
-                    last_ts = ts
-                last_review_at = last_ts
-                next_review_at = last_ts + int(round(I * 86400))
-            
-            cur.execute("""
-                UPDATE problems
-                SET n = ?,
-                    ef = ?,
-                    i = ?,
-                    last_review_at = ?,
-                    next_review_at = ?
-                WHERE id = ?
-            """, (n, EF, I, int(last_review_at), int(next_review_at), ts))
-    finally:
-        con.close()
-
-    logging.info(f"Record {entry_id} removed. LC {problem_id} state recalculated.")
+    logging.info(f"Record {entry_uuid} removed. LC {problem_id} state recalculated.")
 
 
 if __name__ == "__main__":
