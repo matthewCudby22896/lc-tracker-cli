@@ -211,6 +211,21 @@ def rm_entry(entry_uuid : str) -> None:
 
     logging.info(f"Record {entry_uuid} removed. LC {problem_id} state recalculated.")
 
+@app.command(name="sync")
+def sync():
+    # 1. Check if a github PAT has been provided
+
+    # 2. If it hasn't request one and save it for future use
+
+    # 3. Pull the remote event history
+
+    # 4. Perform an event history merge
+
+    # 5. Push the updated event history
+
+    # 6. Report success
+
+    pass
 
 if __name__ == "__main__":
     app()
