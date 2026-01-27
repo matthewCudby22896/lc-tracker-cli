@@ -238,66 +238,6 @@ def set_pat(pat: str = typer.Argument(..., help="Your GitHub Personal Access Tok
     
     typer.echo("Success: GitHub PAT has been saved.")
 
-
-@app.command(name="setup-backup")
-def setup_backup():
-    typer.echo(
-        """
-        [ Sync Setup ]
-        
-        To enable remote backups, you will need:
-        1. A GitHub repository (e.g., 'lc-track-backup').
-        2. A Personal Access Token (PAT) with 'Contents: Read & Write' 
-        permissions scoped to that specific repository.
-
-        Note: For better security, we recommend a 'Fine-Grained Token' 
-        without administrative privileges.
-        """
-    )
-
-    # 1. Get the name of the repository the user wishes to use for backup and syncing of events
-    repo_name = typer.prompt("Enter the name of the repository to use for backups and syncing", hide_input=False)
-
-    # 2. Get the PAT
-    pat = typer.prompt("Enter GitHub PAT (Permissions: 'Contents' read/write for backup repo)", hide_input=True)
-
-    g = github.Github(pat) # TODO: Check this doesn't throw an error if PAT is wrong
-
-    # 3. Check the PAT
-    try: 
-        user = g.get_user()
-        username = user.login
-        typer.echo(f"Authenticated as: {username}.")
-    except github.BadCredentialsException as exc:
-        typer.echo("Failed to authenticate using provided PAT. Please check details and reattempt") # TODO: Error message
-        raise typer.Exit(1)
-
-    # 4. Check that the repo exists
-    try:
-        repo = user.get_repo(repo_name) # Will fail if the repo is wrong
-        typer.echo(f"Verified existence of {repo_name} repository.")
-
-    except github.UnknownObjectException as exc:
-        typer.echo("Failed to verify existence of backup repo. Please check repo details and reattempt setup.")
-        raise typer.Exit(1) 
-    
-    # 5. Check we have read / write access to the repo
-    permissions = repo.permissions
-
-    if not (permissions.push and permissions.pull):
-        typer.echo(f"The provided PAT has insufficient permissions for {repo_name}")
-        typer.echo("Please ensure the token has 'Contents: Read & Write' access")
-        raise typer.Exit(1)
-    
-    typer.echo(f"Verified that PAT grants read & write access.")
-
-    # 6. Write the details to the local database
-    with access.get_db_connection() as con:
-        access.set_state(con, 'PAT', pat)
-        access.set_state(con, 'BACKUP_REPO_NAME', repo_name)
-    
-    typer.echo(f"Backup / sync has succesfully been setup. Run `lc-track sync` to sync lc-track with the backup.")
-
 @app.command(name="setup-backup")
 def setup_backup():
     typer.echo(
