@@ -5,35 +5,12 @@ import datetime
 import sqlite3
 import logging
 import git    
-from platformdirs import PlatformDirs
 from pathlib import Path
 from typing import Dict, Tuple, List, Any, Optional
 
 from .sm2 import SM2
 from .ds import Problem
-from .lc_client import fetch_all_problems
-
-# TODO: I think there's a trusted library for determining the correct directory to store program data within
-# TODO: Improve the 2 below functions
-
-dirs = PlatformDirs('lc-track','lc-track')
-
-def get_data_dir() -> Path:
-    data_dir = Path(dirs.user_data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir
-
-def get_backup_repo_dir() -> Path:
-    data_dir = get_data_dir()
-    backup_repo = data_dir / "lc-track-backup"
-    backup_repo.mkdir(parents=True, exist_ok=True)
-    return backup_repo
-
-DATA_DIR = get_data_dir()
-BACKUP_REPO_DIR = get_backup_repo_dir()
-DB_FILE = DATA_DIR / "database.db"
-LOCAL_EVENT_LOG_FILE = DATA_DIR / "event_log.jsonl" # A local store of the event log
-BACKUP_EVENT_LOG_FILE = BACKUP_REPO_DIR / "event_log_backup.jsonl"
+from .constants import DB_FILE, LOCAL_EVENT_HISTORY, BACKUP_EVENT_HISTORY, TMP_EVENT_HISTORY
 
 def get_for_review_problems() -> List[Problem]:
     now = int(datetime.datetime.now().timestamp())
@@ -94,7 +71,7 @@ def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : in
 
 
 def append_event(event: Dict[str, Any]) -> None:
-    with open(LOCAL_EVENT_LOG_FILE, "a", encoding="utf-8") as f:
+    with open(LOCAL_EVENT_HISTORY, "a", encoding="utf-8") as f:
         json_event = json.dumps(event)
         f.write(json_event + '\n')
 
@@ -377,8 +354,8 @@ def check_repo(path : Path) -> bool:
 
 def merge_event_histories() -> None:
     # Load both event histories into memory
-    events_local : List[dict] = load_event_history(LOCAL_EVENT_LOG_FILE)
-    events_backup : List[dict] = load_event_history(BACKUP_EVENT_LOG_FILE)
+    events_local : List[dict] = load_event_history(LOCAL_EVENT_HISTORY)
+    events_backup : List[dict] = load_event_history(BACKUP_EVENT_HISTORY)
 
     # Merge the two into a single list
     combined_events = list({event['id']: event for event in events_backup + events_local}.values())
@@ -400,18 +377,16 @@ def load_event_history(path : Path) -> List[Dict[str, Any]]:
                 events.append(json.loads(line))
             except json.JSONDecodeError as exc:
                 raise Exception(f"Failed to parse ln {ln} of {f}: {exc}") 
+
     return events            
 
 def update_event_history_backup(event_history : List[str, Any]) -> None:
-    # Write to a tmp file
-    tmp_history_loc = get_data_dir() / "tmp_event_history.jsonl"
-
-    with open(tmp_history_loc, 'w', encoding="utf-8") as f:
+    with open(TMP_EVENT_HISTORY, 'w', encoding="utf-8") as f:
         for event in event_history: 
             line = json.dumps(event)
             f.write(line + '\n')
 
     # Atomic swap: Replace the backup file with the tmp file
-    tmp_history_loc.replace(BACKUP_EVENT_LOG_FILE) 
+    TMP_EVENT_HISTORY.replace(BACKUP_EVENT_HISTORY) 
 
 

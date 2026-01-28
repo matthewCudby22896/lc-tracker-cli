@@ -263,6 +263,7 @@ def setup_backup():
         typer.echo(f"Connected: Authenticated as {username}")
     except github.BadCredentialsException:
         typer.echo("Error: Invalid PAT. Please verify your token and try again.")
+        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1)
 
     # 4. Repository Verification
@@ -271,12 +272,14 @@ def setup_backup():
         typer.echo(f"Connected: Found {repo_name} repository")
     except github.UnknownObjectException:
         typer.echo(f"Error: Repository '{repo_name}' not found. Check name and PAT scopes.")
+        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1) 
     
     # 5. Permission Verification
     permissions = repo.permissions
     if not (permissions.push and permissions.pull):
         typer.echo("Error: PAT has insufficient permissions (Read/Write required)")
+        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1)
     
     typer.echo("Connected: Read and Write access confirmed")
@@ -285,8 +288,25 @@ def setup_backup():
     with access.get_db_connection() as con:
         access.set_state(con, 'PAT', pat)
         access.set_state(con, 'BACKUP_REPO_NAME', repo_name)
+        access.set_state(con, 'USERNAME', username)
+        access.set_state(con, 'SYNC_SETUP', 'SUCCESS')
     
     typer.echo("Success: Sync configuration saved")
+
+@app.command(name="sync")
+def sync():
+    if access.get_state('SYNC_SETUP') != "SUCCESS":
+        typer.echo("You have not yet setup syncing / backups. See `lc-track setup-backup`.") 
+        raise typer.Exit(1)
+    
+    # Based of the SUCCESS, we can assumed we have a PAT & repo name
+    PAT = access.get_state('PAT') 
+    BACKUP_REPO_NAME = access.get_state('PAT')
+
+    if not access.check_repo(access.BACKUP_REPO_DIR):
+        typer.echo(f"Cloning {BACKUP_REPO_NAME} to {access.BACKUP_REPO_DIR}")
+    
+    
 
 @app.command(name="sync")
 def sync():
