@@ -7,10 +7,11 @@ import random
 import github
 import git
 
-from .utility import recalc_and_set_problem_state
 from .sm2 import SM2 
 from . import access
-from . import utility
+from .utility import merge_event_histories, initial_sync
+from . import github_client
+from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY
 
 from typing import Any, Dict, Tuple, List
 
@@ -36,7 +37,7 @@ def main():
         logging.info("lc-track database initialised.") 
 
     if access.get_state("initial_sync") != "complete":
-        utility.initial_sync()
+        initial_sync()
 
 @app.command(name="study")
 def study():
@@ -262,8 +263,9 @@ def setup_backup():
         username = user.login
         typer.echo(f"Connected: Authenticated as {username}")
     except github.BadCredentialsException:
-        typer.echo("Error: Invalid PAT. Please verify your token and try again.")
-        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
+        typer.echo("Error: Invalid PAT. Please verify your token and try again.") 
+        with access.get_db_connection() as con:
+            access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1)
 
     # 4. Repository Verification
@@ -272,14 +274,16 @@ def setup_backup():
         typer.echo(f"Connected: Found {repo_name} repository")
     except github.UnknownObjectException:
         typer.echo(f"Error: Repository '{repo_name}' not found. Check name and PAT scopes.")
-        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
+        with access.get_db_connection() as con:
+            access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1) 
     
     # 5. Permission Verification
     permissions = repo.permissions
     if not (permissions.push and permissions.pull):
         typer.echo("Error: PAT has insufficient permissions (Read/Write required)")
-        access.set_state(con, 'SYNC_SETUP', 'FAILURE')
+        with access.get_db_connection() as con:
+            access.set_state(con, 'SYNC_SETUP', 'FAILURE')
         raise typer.Exit(1)
     
     typer.echo("Connected: Read and Write access confirmed")
@@ -293,106 +297,40 @@ def setup_backup():
     
     typer.echo("Success: Sync configuration saved")
 
+# TODO: WIP: need to consider the case where the remote repo is fresh and empty + need to implement
+# the logic for updating the local state (i.e. the database) if changes have occured.
 @app.command(name="sync")
 def sync():
-    if access.get_state('SYNC_SETUP') != "SUCCESS":
-        typer.echo("You have not yet setup syncing / backups. See `lc-track setup-backup`.") 
-        raise typer.Exit(1)
-    
-    # Based of the SUCCESS, we can assumed we have a PAT & repo name
-    PAT = access.get_state('PAT') 
-    BACKUP_REPO_NAME = access.get_state('PAT')
+    pat = access.get_state('PAT') 
+    repo_name = access.get_state('BACKUP_REPO_NAME')
+    username = access.get_state('USERNAME')
 
-    if not access.check_repo(access.BACKUP_REPO_DIR):
-        typer.echo(f"Cloning {BACKUP_REPO_NAME} to {access.BACKUP_REPO_DIR}")
-    
-    
+    auth_url = f"https://{pat}@github.com/{username}/{repo_name}.git"
 
-@app.command(name="sync")
-def sync():
-    # 1. Check if a github PAT has been provided. Where to store?
-    PAT = access.get_state('PAT')
-
-    if not PAT:
-        PAT = input("No github PAT set. Please enter:")
-
-        # TODO: Basic validation
-
-        # Make some sort of request to verify it
-        with access.get_db_connection() as con:
-            access.set_state(con, 'PAT', PAT)
-    
-    g = github.Github(PAT)
-
-    user = g.get_user()
-
-    # TODO: Move this to a constants file (among with some other vars)
-    repo_name = "lc-track-remote-backup"
-
-    try:
-        remote_repo = user.get_repo(repo_name)
-
-    # Exception raised when a non-existing object is requested 
-    # (when Github API replies with a 404 HTML status)
-    except github.UnknownObjectException as e: #
-        # Create the repository        
-        remote_repo = user.create_repo(
-            name=repo_name,
-            description="A repository for maintaining a backup of lc-track's state.",
-            private=False,
-            auto_init=True,
-        )
-
-    # 2. Check if the local of the remote backup repo is initialised
-    if not access.check_repo(access.BACKUP_REPO_DIR):
-        typer.echo(f"Cloning {repo_name} to {access.BACKUP_REPO_DIR}")
-        try: 
-            # Create an authenticated URL: https://<PAT>@github.com/user/repo.git
-            auth_url = remote_repo.clone_url.replace("https://", f"https://{PAT}@")
-
-            local_backup_repo = git.Repo.clone_from(auth_url, access.BACKUP_REPO_DIR)
-        
-        # TODO: More informative exception handling
-        except Exception as exc:
-            typer.echo(f"An unexpected exception has occurred: {exc}")
-            raise typer.Exit(1)
-        
-        typer.echo(f"Local backup directory initialised.")
+    if not access.check_repo(BACKUP_REPO_DIR):
+        typer.echo(f"Connected: Initializing local backup at {BACKUP_REPO_DIR}")
+        repo = git.Repo.clone_from(auth_url, BACKUP_REPO_DIR)
     else:
-        local_backup_repo = git.Repo(access.BACKUP_REPO_DIR)
-        origin = local_backup_repo.remotes.origin
-        
-        # Update the remote URL to include the PAT for this session
-        auth_url = remote_repo.clone_url.replace("https://", f"https://{PAT}@")
-        origin.set_url(auth_url)
+        repo = git.Repo(BACKUP_REPO_DIR)
+        repo.remotes.origin.set_url(auth_url)
+        repo.remotes.origin.pull()
 
-    # 3. See if the local version of the remote backup is up-to-date
-    origin = local_backup_repo.remotes.origin
-
-    origin.fetch()
-    origin.pull()
-
-    # 4. Perform an event history merge
-    merged_history : List[Dict[str, Any]] = access.merge_event_histories()
-
-    # 5. Push the updated event history
+    merged_history = merge_event_histories()
     access.update_event_history_backup(merged_history)
 
-    local_backup_repo.index.add([access.BACKUP_EVENT_LOG_FILE])
-    new_commit = local_backup_repo.index.commit("Synced & and updated event log.")
-
-    local_backup_repo.remote(name="origin")
-
-    push_info = origin.push()
-
-    # Optional: Check if the push was successful
-    if push_info[0].flags & push_info[0].ERROR:
-        print(f"Push failed: {push_info[0].summary}")
+    if repo.is_dirty(untracked_files=True):
+        repo.index.add([BACKUP_EVENT_HISTORY.name])
+        repo.index.commit("Sync: Updated event log")
+        
+        push_info = repo.remotes.origin.push()
+        
+        if push_info[0].flags & push_info[0].ERROR:
+            typer.echo(f"Error: Push failed: {push_info[0].summary}")
+        else:
+            typer.echo("Success: Remote backup updated")
     else:
-        print("Push successful!")
+        typer.echo("Status: Backup is already up to date")
 
-    # 6. Report success
     typer.echo("Sync complete.")
-
 if __name__ == "__main__":
     app()

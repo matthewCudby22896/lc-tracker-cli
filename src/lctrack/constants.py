@@ -10,7 +10,7 @@ def get_data_dir() -> Path:
 
 def get_backup_repo_dir() -> Path:
     data_dir = get_data_dir()
-    backup_repo = data_dir / "lc-track-backup"
+    backup_repo = data_dir / "backup"
     backup_repo.mkdir(parents=True, exist_ok=True)
     return backup_repo
 

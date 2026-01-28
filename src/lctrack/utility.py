@@ -3,7 +3,8 @@ import datetime
 import logging
 from typing import List, Optional, Tuple
 
-from . import access
+from .constants import BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
+from .access import load_event_history
 from .sm2 import SM2
 from .lc_client import fetch_all_problems
 
@@ -112,3 +113,15 @@ def initial_sync() -> None:
         logging.error(f"Failed to sync problem set with leetcode.com: {e}")
     finally:
         con.close()
+
+
+def merge_event_histories() -> None:
+    # Load both event histories into memory
+    events_local : List[dict] = load_event_history(LOCAL_EVENT_HISTORY)
+    events_backup : List[dict] = load_event_history(BACKUP_EVENT_HISTORY)
+
+    # Merge the two into a single list of unique events, sorted by ts
+    combined_events = list({event['id']: event for event in events_backup + events_local}.values())
+    combined_events.sort(key=lambda x : x['ts'])
+
+    return combined_events
