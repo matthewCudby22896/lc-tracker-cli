@@ -33,7 +33,7 @@ def fmt_date(ts):
 @app.callback()
 def main():
     """
-    LeetCode Track CLI: Spaced Repition for your coding practice.
+    LeetCode-Track CLI
     """
     if not access.db_exists():
         access.init_db()
@@ -44,8 +44,7 @@ def main():
 
 @app.command(name="study")
 def study():
-    """Picks a random problem those scheduled for review."""
-
+    """Picks a problem at random from the set of active problems that are due for review."""
     problems = access.get_for_review_problems()
 
     if not problems:
@@ -86,7 +85,7 @@ def ls_active():
 
 @app.command(name="ls-review")
 def ls_for_review():
-    """ List all problems currently due for an SM-2 review. """
+    """ List all problems, within the active set, currently due for review. """
     due_problems = access.get_for_review_problems()
 
     if not due_problems:
@@ -104,7 +103,7 @@ def ls_for_review():
 
 @app.command(name="activate")
 def activate(id: int) -> None:
-    """ Add a problem (by its id) to the 'active' study set. """
+    """ Add a problem (by its id) to the active study set. """
     problem = access.get_problem(id)
     
     if not problem:
@@ -124,7 +123,7 @@ def activate(id: int) -> None:
 
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
-    """ Remove a problem (by its id) from the 'active' study set. """
+    """ Remove a problem (by its id) from the active study set. """
     problem = access.get_problem(id)
     
     if not problem:
@@ -231,7 +230,7 @@ def rm_entry(entry_uuid : str) -> None:
 def set_pat(pat: str = typer.Argument(..., help="Your GitHub Personal Access Token")):
     """
     Store your GitHub Personal Access Token in the local database.
-    Usage: lc-track set-pat <YOUR_PAT_HERE>
+    Usage: lc-track set-pat <PAT>
     """
     try:
         with access.get_db_connection() as con:
@@ -245,6 +244,9 @@ def set_pat(pat: str = typer.Argument(..., help="Your GitHub Personal Access Tok
 
 @app.command(name="setup-backup")
 def setup_backup():
+    """
+    Setup access to a github repository to use as a remote backup of lc-track's event history.
+    """
     typer.echo(
         """
         [ LC-TRACK SYNC SETUP ]
@@ -300,9 +302,6 @@ def setup_backup():
         access.set_state(con, 'SYNC_SETUP', 'SUCCESS')
     
     typer.echo("Success: Sync configuration saved")
-
-# TODO: WIP: need to consider the case where the remote repo is fresh and empty + need to implement
-# the logic for updating the local state (i.e. the database) if changes have occured.
 
 @app.command(name="sync")
 def sync():
