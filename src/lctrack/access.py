@@ -1,30 +1,16 @@
+import os
+import json
+import uuid
 import datetime
 import sqlite3
-import os
+import logging
+import git    
 from pathlib import Path
 from typing import Dict, Tuple, List, Any, Optional
-import logging
-from dataclasses import dataclass
 
+from .sm2 import SM2
 from .ds import Problem
-from .lc_client import fetch_all_problems
-
-
-def get_data_dir():
-    # Priority: Environment variable -> Default XDF Path -> Home fallback
-    xdg_data = os.environ.get("XDG_DATA_HOME")
-
-    if xdg_data:
-        data_path = Path(xdg_data) / "lc-track"
-    else:
-        data_path = Path.home() / ".local" / "share" / "lc-track"
-    
-    data_path.mkdir(parents=True, exist_ok=True)
-
-    return data_path
-
-DATA_DIR = get_data_dir()
-DB_FILE = DATA_DIR / "database.db"
+from .constants import DB_FILE, LOCAL_EVENT_HISTORY, BACKUP_EVENT_HISTORY, TMP_EVENT_HISTORY
 
 def get_for_review_problems() -> List[Problem]:
     now = int(datetime.datetime.now().timestamp())
@@ -83,39 +69,125 @@ def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : in
     finally:
         con.close()
 
-def insert_entry(problem_id: int, confidence: int, ts: int) -> int:
+def bulk_update_SM2_state(new_states : List[int, float, int, int, int, int]) -> None:
     con = get_db_connection()
+
+    try:
+        with con:
+            cur = con.cursor()
+            cur.executemany("""
+                UPDATE problems 
+                SET n = ?, EF = ?, I = ?, last_review_at = ?, next_review_at = ?
+                WHERE id = ?
+            """, new_states)
+    finally:
+        con.close()
+
+def append_event(event: Dict[str, Any]) -> None:
+    with open(LOCAL_EVENT_HISTORY, "a", encoding="utf-8") as f:
+        json_event = json.dumps(event)
+        f.write(json_event + '\n')
+
+def create_add_entry_event(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> Dict[str, Any]:
+    """Returns a dictionary representing an ADD_ENTRY event with a unique ID."""
+    return {
+        "id": entry_uuid, # Uniquely identifies the event
+        "event": "ADD_ENTRY",
+        "problem_id": problem_id,
+        "confidence": confidence,
+        "ts": ts # For ordered replay
+    }
+
+def create_rm_entry_event(entry_uuid : int, ts : int) -> Dict[str, Any]:
+    return {
+        "id" : str(uuid.uuid4()), # Uniquely identify the event
+        "event" : "RM_ENTRY",
+        "target_entry_uuid" : entry_uuid, # The uuid of the entry that was removed
+        "ts" : ts # For ordered replay
+    }
+
+def insert_entry(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> int:
+
+    con = get_db_connection()
+
     try:
         with con:
             cur = con.cursor()
 
-            # Here we omit 'id' from the columns so SQLite auto-generates it
             cur.execute(
                 """
-                INSERT INTO entries (problem_id, confidence, ts) 
-                VALUES (?, ?, ?)
+                INSERT INTO entries (id, problem_id, confidence, ts) 
+                VALUES (?, ?, ?, ?)
                 """,
-                (problem_id, confidence, ts)
+                (entry_uuid, problem_id, confidence, ts)
             )
 
-            # Fetch the ID of the record just created
-            record_id = cur.lastrowid
-            return record_id
-
+            # If the above succeeds, append a ADD_ENTRY
+            append_event(
+                create_add_entry_event(entry_uuid, problem_id, confidence, ts)
+            )
+            
+            return entry_uuid
     finally:
         con.close()
 
-def del_entry(entry_id : int) -> None:
-    """Delete entry by id."""
+def rm_entry(entry_uuid : str) -> int:
+    """ Removes a specific entry from the local database, then recalculates
+    the SM2 state for the corresponding problem using the remaining entries.
+    
+    Returns the problem_id of the problem corresponding to the specified event.
+    """
+    rec = get_entry(entry_uuid)
+    if rec is None:
+        raise RuntimeError(f"No entry exists with uuid: {entry_uuid}")
+
+    _, problem_id, *_ = rec
     con = get_db_connection()
     try:
         with con:
+            # Delete the entry
             cur = con.cursor()
-            cur.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+            cur.execute("DELETE FROM entries WHERE id = ?", (entry_uuid,))
+
+            # Get all of the entries for the problem_id
+            cur.execute("SELECT id, confidence, ts FROM entries WHERE problem_id = ?", (problem_id,))
+            entries = cur.fetchall()
+
+            n, EF, I = 0, 2.5, 0.0
+            if not entries:     
+                last_review_at = 0
+                next_review_at = 0
+            else:
+                entries.sort(key=lambda x: x[2])  # ts asc
+                last_ts = 0
+                for _, conf, ts in entries:
+                    n, EF, I = SM2(conf, n, EF, I)
+                    last_ts = ts
+                last_review_at = last_ts
+                next_review_at = last_ts + int(round(I * 86400))
+            
+            cur.execute("""
+                UPDATE problems
+                SET n = ?,
+                    ef = ?,
+                    i = ?,
+                    last_review_at = ?,
+                    next_review_at = ?
+                WHERE id = ?
+            """, (n, EF, I, int(last_review_at), int(next_review_at), problem_id))
+
+            # If the above succeeds, append a RM_ENTRY event
+            now_unix_ts = int(datetime.datetime.now().timestamp())
+
+            append_event(
+                create_rm_entry_event(entry_uuid, now_unix_ts)
+            )
+
+            return problem_id
     finally:
         con.close()
 
-def get_entry(entry_id: int) -> Optional[Tuple[int, int, int, int]]:
+def get_entry(entry_uuid : str) -> Optional[Tuple[int, int, int, int]]:
     con = get_db_connection()
     
     try:
@@ -126,7 +198,7 @@ def get_entry(entry_id: int) -> Optional[Tuple[int, int, int, int]]:
                 SELECT id, problem_id, confidence, ts  
                 FROM entries
                 WHERE id = ?
-            """, (entry_id,))
+            """, (entry_uuid,))
 
             row : Optional[Tuple[int, int, int, int]] = cur.fetchone()
 
@@ -135,14 +207,38 @@ def get_entry(entry_id: int) -> Optional[Tuple[int, int, int, int]]:
     finally:
         con.close()
 
-def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[int, int, int]]:
+def process_event(event) -> None:
+    if event['event'] == "ADD_ENTRY":
+        event_uuid, problem_id, confidence, ts = (
+            event['id'], event['problem_id'], event['confidence'], event['ts']
+        )
+        insert_entry(event_uuid, problem_id, confidence, ts)
+         
+    elif event['event'] == "RM_ENTRY":
+        target_entry_uuid  = event['target_entry_uuid']
+        rm_entry(target_entry_uuid)
+    else:
+        raise Exception(f"Unexpected 'event' of type {event['event']}")
+
+def clear_entries_table() -> None:
+    con = get_db_connection()
+
+    try:
+        with con:
+            cur = con.cursor()
+
+            cur.execute("DELETE FROM entries")
+    except:
+        con.close()
+
+def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[str, int, int, int]]:
     con = get_db_connection()
     
     try:
         cur = con.cursor()
         
         cur.execute("""
-            SELECT id, confidence, ts  
+            SELECT id, problem_id, confidence, ts  
             FROM entries
             WHERE problem_id = ?
         """, (problem_id,))
@@ -151,7 +247,16 @@ def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[int, int, int]
 
     finally:
         con.close()
-    
+
+def get_all_entries() -> List[Tuple[str, int, int, int]]:
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT id, problem_id, confidence, ts FROM entries")
+
+        return cur.fetchall()
+    finally:
+        con.close()
 
 def get_problem(id: int) -> Optional[Problem]:
     con = get_db_connection()
@@ -185,7 +290,6 @@ def get_problem_topics(problem_id : int) -> List[str]:
     finally:
         con.close()
     
-    
 def set_active(id: int, active: bool) -> None:  
     con = get_db_connection()
     try:
@@ -201,6 +305,7 @@ def set_active(id: int, active: bool) -> None:
 def get_db_connection() -> sqlite3.Connection:
     con = sqlite3.connect(DB_FILE)
     con.execute("PRAGMA foreign_keys = ON;")
+    con.isolation_level = ""
     return con
 
 def db_exists() -> bool:
@@ -239,7 +344,7 @@ def init_db() -> None:
     );
 
     CREATE TABLE IF NOT EXISTS entries(
-        id INTEGER PRIMARY KEY, 
+        id TEXT PRIMARY KEY, 
         problem_id INTEGER NOT NULL,
         confidence INTEGER NOT NULL CHECK (confidence BETWEEN 0 and 5),
         ts INTEGER NOT NULL,
@@ -281,4 +386,19 @@ def insert_problems(con : sqlite3.Connection, problems : List[Tuple[int, str]]):
 
 def set_state(con, key: str, value: str) -> None:
     con.execute("REPLACE INTO app_state (key, value) VALUES (?, ?)", (key, value))
+
+def check_repo(path : Path) -> bool:
+    try:
+        git.Repo(path)
+        # If this succeeds, this is a valid repo
+        return True
+    except git.InvalidGitRepositoryError as exc:
+        # The folder exists, but it's not a git repo
+        return False
+    except git.NoSuchPathError as exc:
+        # The folder doesn't even exist
+        return False
+
+
+
 

@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 import datetime
 import logging
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import List, Optional, Tuple, Dict, Any
 
-from . import access
+from .constants import BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
 from .sm2 import SM2
 from .lc_client import fetch_all_problems
+from . import access
+
 
 DIFF_TO_INT = {
     "Hard" : 2, 
@@ -50,11 +53,11 @@ class Problem:
         )
 
 def recalc_and_set_problem_state(problem_id: int) -> None:
-    """Recompute SM-2 state, last/next review from this problem's records."""
+    """Recompute SM-2 state, last/next review from this problem's entries."""
     # [(id, confidence, ts)]
-    records: List[Tuple[int, int, int]] = access.get_all_entries_by_problem_id(problem_id)
+    entries: List[Tuple[str, int, int, int]] = access.get_all_entries_by_problem_id(problem_id)
 
-    if not records: # Reset to default state
+    if not entries: # Reset to default state
         now = int(datetime.datetime.now().timestamp())
         n, EF, I = 0, 2.5, 0.0
         last_review_at = 0
@@ -62,11 +65,11 @@ def recalc_and_set_problem_state(problem_id: int) -> None:
         access.update_SM2_state(problem_id, n, EF, I, last_review_at, next_review_at)
         return
 
-    records.sort(key=lambda x: x[2])  # ts asc
+    entries.sort(key=lambda x: x[3])  # ts asc
 
     n, EF, I = 0, 2.5, 0.0
     last_ts = 0
-    for _, conf, ts in records:
+    for _, _, conf, ts in entries:
         n, EF, I = SM2(conf, n, EF, I)
         last_ts = ts
 

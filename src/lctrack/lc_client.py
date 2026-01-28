@@ -81,8 +81,3 @@ def fetch_all_problems() -> List[Dict[str, Any]]:
     logging.info(f"{len(all_questions)} problems fetched.")
 
     return all_questions
-
-
-
-
-
