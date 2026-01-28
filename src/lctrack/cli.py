@@ -304,64 +304,89 @@ def setup_backup():
 # TODO: WIP: need to consider the case where the remote repo is fresh and empty + need to implement
 # the logic for updating the local state (i.e. the database) if changes have occured.
 
-""" Could thing about a more efficient system for determining from where things need to be recalced
-i.e blockchains maybe ect. ect. i'm tired.
-
-"""
 @app.command(name="sync")
 def sync():
+    """
+    Synchronises the local event history with the remote backup repository.
+
+    Performs a bidirectional sync sync:
+    1. Fetches and pulls the latest history from the remote GitHub repository
+    2. Merges local and remote event logs to create a unified history.
+    3. Push the combined history back to the remote repository
+    4. Replays the unified event log to rebuil the local SQLite database.
+    """
+    
+    # 1. Configuration Check
     if access.get_state('SYNC_SETUP') != 'SUCCESS':
-        typer.echo("You have not yet succesfully setup backups & syncing. Please see `lc-track setup-backup`")
+        typer.echo("Error: Sync not configured. Run `lc-track setup-backup` first.")
         raise typer.Exit(1)
+
     pat = access.get_state('PAT') 
     repo_name = access.get_state('BACKUP_REPO_NAME')
     username = access.get_state('USERNAME')
-
     auth_url = f"https://{pat}@github.com/{username}/{repo_name}.git"
 
-    if not access.check_repo(BACKUP_REPO_DIR): # Backup repo doesn't exist
-        typer.echo(f"Connected: Initializing local backup at {BACKUP_REPO_DIR}")
-        # Clone from the remote
-        repo = git.Repo.clone_from(auth_url, BACKUP_REPO_DIR)
+    # 2. Repository Initialisation
+    try:
+        if not access.check_repo(BACKUP_REPO_DIR):
+            typer.echo(f"Initialisation: Cloning remote backup to {BACKUP_REPO_DIR}...")
+            repo = git.Repo.clone_from(auth_url, BACKUP_REPO_DIR)
+        else:
+            repo = git.Repo(BACKUP_REPO_DIR)
+            repo.remotes.origin.set_url(auth_url)
+    except Exception as exc:
+        typer.echo(f"Failed to initialise local repository from remote:\n\t{exc}")
+        raise typer.Exit(1)
 
-    else: # Clone of remote repo already exists
-        repo = git.Repo(BACKUP_REPO_DIR)
-        repo.remotes.origin.set_url(auth_url)
+    # 3. Handle Empty Remote (First-time use)
+    if not repo.refs:
+        try:
+            typer.echo("Setup: Initialising new remote repository with README.md...")
+            readme_file = BACKUP_REPO_DIR / "README.md"
+            with open(readme_file, 'w', encoding='utf-8') as f:
+                f.write("# lc-track remote backup\n Event history backup for LeetCode tracking.") 
 
-    if not repo.refs: # Repo is completely empty, this can occur if the user created a completely fresh repo without any files
-        # Initital setup
-        # TODO: Move to seperate function
-        with open(BACKUP_REPO_DIR / "README.md", 'w', encoding='utf-8') as f:
-            f.write("# lc-track remote backup")
-        
-        repo.index.add(['README.md'])
-        repo.index.commit("Initial commit")
-        repo.remotes.origin.push('main:main')
+            repo.index.add(['README.md'])
+            repo.index.commit("Initial setup")
+            repo.remotes.origin.push('main:main')
 
-    else:
-        origin = repo.remotes.origin
+        except Exception as exc:
+            typer.echo(f"Failed to handle initialisation of empty repository:\n\t{exc}")
+            raise typer.Exit(1)
 
-        # Pull the latest changes
-        origin.fetch()
-        origin.pull()
+    # 4. The Sync Process
+    try:
+        # Step 1: Pull
+        typer.echo("Sync [1/4]: Fetching latest remote history...")
+        repo.remotes.origin.pull()
 
-    # We now have the most current version of the backup repo
-    event_history : List[Dict[str, Any]] = backup.merge_event_histories(BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY)
+        # Step 2: Merge logic
+        typer.echo("Sync [2/4]: Merging local and backup event logs...")
+        event_history = backup.merge_event_histories(BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY)
 
-    # Update the local version & the backup version of the event history
-    backup.write_event_history(TMP_EVENT_HISTORY, event_history) 
-    TMP_EVENT_HISTORY.replace(BACKUP_EVENT_HISTORY) # atomic
+        # Atomic writes to both destinations
+        for target_path in [BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY]:
+            backup.write_event_history(TMP_EVENT_HISTORY, event_history)
+            TMP_EVENT_HISTORY.replace(target_path)
 
-    backup.write_event_history(TMP_EVENT_HISTORY, event_history) 
-    TMP_EVENT_HISTORY.replace(LOCAL_EVENT_HISTORY) # atomic
+        # Step 3: Push back to Cloud
+        typer.echo("Sync [3/4]: Uploading synchronised history to GitHub...")
+        repo.index.add([BACKUP_EVENT_HISTORY.name]) # Use .name if it's a Path object
+        if repo.is_dirty():
+            repo.index.commit("Sync: Combined local and remote histories")
+            repo.remotes.origin.push()
+        else:
+            typer.echo("Status: Remote already up to date.")
 
-    # Commit and push the changes
-    repo.index.add([BACKUP_EVENT_HISTORY])
-    repo.index.commit("Synced & combined local and remote event histories.")
-    repo.remotes.origin.push()
+        # Step 4: Database Rebuild
+        typer.echo("Sync [4/4]: Rebuilding local database state from event history...")
+        backup.update_state_from_local_event_history()
 
-    # TODO: Replay logic i.e. ensure that the database state reflects that derived from the events
-    backup.update_state_from_local_event_history()
+        typer.echo("Done: Sync successful. Local state and remote state are now up to date.")
+
+    except Exception as e:
+        typer.echo(f"Error: An unexpected error occurred during sync:\n\t{e}")
+        raise typer.Exit(1)
 
 if __name__ == "__main__":
     app()
