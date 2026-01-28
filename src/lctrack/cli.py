@@ -6,12 +6,15 @@ import click
 import random
 import github
 import git
+import uuid
+
 
 from .sm2 import SM2 
 from . import access
-from .utility import merge_event_histories, initial_sync
+from .utility import initial_sync
 from . import github_client
-from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY
+from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY
+from . import backup
 
 from typing import Any, Dict, Tuple, List
 
@@ -182,7 +185,8 @@ def add_entry(
 
     # 1. Save the record
     try:
-        record_id = access.insert_entry(id, confidence, now_unix_ts)
+
+        record_id = access.insert_entry(str(uuid.uuid4()), id, confidence, now_unix_ts)
     except Exception as exc: 
         logging.error(f"Failed to insert entry into local database: {exc}")
         raise typer.Exit(1)
@@ -299,38 +303,65 @@ def setup_backup():
 
 # TODO: WIP: need to consider the case where the remote repo is fresh and empty + need to implement
 # the logic for updating the local state (i.e. the database) if changes have occured.
+
+""" Could thing about a more efficient system for determining from where things need to be recalced
+i.e blockchains maybe ect. ect. i'm tired.
+
+"""
 @app.command(name="sync")
 def sync():
+    if access.get_state('SYNC_SETUP') != 'SUCCESS':
+        typer.echo("You have not yet succesfully setup backups & syncing. Please see `lc-track setup-backup`")
+        raise typer.Exit(1)
     pat = access.get_state('PAT') 
     repo_name = access.get_state('BACKUP_REPO_NAME')
     username = access.get_state('USERNAME')
 
     auth_url = f"https://{pat}@github.com/{username}/{repo_name}.git"
 
-    if not access.check_repo(BACKUP_REPO_DIR):
+    if not access.check_repo(BACKUP_REPO_DIR): # Backup repo doesn't exist
         typer.echo(f"Connected: Initializing local backup at {BACKUP_REPO_DIR}")
+        # Clone from the remote
         repo = git.Repo.clone_from(auth_url, BACKUP_REPO_DIR)
-    else:
+
+    else: # Clone of remote repo already exists
         repo = git.Repo(BACKUP_REPO_DIR)
         repo.remotes.origin.set_url(auth_url)
-        repo.remotes.origin.pull()
 
-    merged_history = merge_event_histories()
-    access.update_event_history_backup(merged_history)
+    if not repo.refs: # Repo is completely empty, this can occur if the user created a completely fresh repo without any files
+        # Initital setup
+        # TODO: Move to seperate function
+        with open(BACKUP_REPO_DIR / "README.md", 'w', encoding='utf-8') as f:
+            f.write("# lc-track remote backup")
+        
+        repo.index.add(['README.md'])
+        repo.index.commit("Initial commit")
+        repo.remotes.origin.push('main:main')
 
-    if repo.is_dirty(untracked_files=True):
-        repo.index.add([BACKUP_EVENT_HISTORY.name])
-        repo.index.commit("Sync: Updated event log")
-        
-        push_info = repo.remotes.origin.push()
-        
-        if push_info[0].flags & push_info[0].ERROR:
-            typer.echo(f"Error: Push failed: {push_info[0].summary}")
-        else:
-            typer.echo("Success: Remote backup updated")
     else:
-        typer.echo("Status: Backup is already up to date")
+        origin = repo.remotes.origin
 
-    typer.echo("Sync complete.")
+        # Pull the latest changes
+        origin.fetch()
+        origin.pull()
+
+    # We now have the most current version of the backup repo
+    event_history : List[Dict[str, Any]] = backup.merge_event_histories(BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY)
+
+    # Update the local version & the backup version of the event history
+    backup.write_event_history(TMP_EVENT_HISTORY, event_history) 
+    TMP_EVENT_HISTORY.replace(BACKUP_EVENT_HISTORY) # atomic
+
+    backup.write_event_history(TMP_EVENT_HISTORY, event_history) 
+    TMP_EVENT_HISTORY.replace(LOCAL_EVENT_HISTORY) # atomic
+
+    # Commit and push the changes
+    repo.index.add([BACKUP_EVENT_HISTORY])
+    repo.index.commit("Synced & combined local and remote event histories.")
+    repo.remotes.origin.push()
+
+    # TODO: Replay logic i.e. ensure that the database state reflects that derived from the events
+    backup.update_state_from_local_event_history()
+
 if __name__ == "__main__":
     app()

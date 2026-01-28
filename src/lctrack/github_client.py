@@ -13,19 +13,12 @@ import typer
 from pathlib import Path
 from typing import Optional
 
-def clone_backup_repo(pat: str, username: str, repo_name: str, local_path: Path) -> Optional[git.Repo]:
+from .constants import BACKUP_REPO_DIR
+
+def clone_backup_repo(pat: str, username: str, repo_name: str) -> Optional[git.Repo]:
     auth_url = f"https://{pat}@github.com/{username}/{repo_name}.git"
 
-    # 2. Ensure the target directory's parent exists, but the target itself should be empty/new
-    local_path.mkdir(parents=True, exist_ok=True)
-
-    try:
         
-        # 3. Perform the clone
-        repo = git.Repo.clone_from(auth_url, local_path)
+    # 3. Perform the clone
+    repo = git.Repo.clone_from(auth_url, BACKUP_REPO_DIR)
         
-        return repo
-
-    except git.GitCommandError as exc:
-        typer.echo(f"Error: Failed to clone repository. {exc.summary}")
-        return None

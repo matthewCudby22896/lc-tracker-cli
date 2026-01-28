@@ -69,6 +69,19 @@ def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : in
     finally:
         con.close()
 
+def bulk_update_SM2_state(new_states : List[int, float, int, int, int, int]) -> None:
+    con = get_db_connection()
+
+    try:
+        with con:
+            cur = con.cursor()
+            cur.executemany("""
+                UPDATE problems 
+                SET n = ?, EF = ?, I = ?, last_review_at = ?, next_review_at = ?
+                WHERE id = ?
+            """, new_states)
+    finally:
+        con.close()
 
 def append_event(event: Dict[str, Any]) -> None:
     with open(LOCAL_EVENT_HISTORY, "a", encoding="utf-8") as f:
@@ -88,12 +101,12 @@ def create_add_entry_event(entry_uuid : str, problem_id: int, confidence: int, t
 def create_rm_entry_event(entry_uuid : int, ts : int) -> Dict[str, Any]:
     return {
         "id" : str(uuid.uuid4()), # Uniquely identify the event
-        "entry_uuid" : entry_uuid, # The uuid of the entry that was removed
+        "event" : "RM_ENTRY",
+        "target_entry_uuid" : entry_uuid, # The uuid of the entry that was removed
         "ts" : ts # For ordered replay
     }
 
-def insert_entry(problem_id: int, confidence: int, ts: int) -> int:
-    entry_uuid = str(uuid.uuid4())
+def insert_entry(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> int:
 
     con = get_db_connection()
 
@@ -194,20 +207,54 @@ def get_entry(entry_uuid : str) -> Optional[Tuple[int, int, int, int]]:
     finally:
         con.close()
 
-def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[int, int, int]]:
+def process_event(event) -> None:
+    if event['event'] == "ADD_ENTRY":
+        event_uuid, problem_id, confidence, ts = (
+            event['id'], event['problem_id'], event['confidence'], event['ts']
+        )
+        insert_entry(event_uuid, problem_id, confidence, ts)
+         
+    elif event['event'] == "RM_ENTRY":
+        target_entry_uuid  = event['target_entry_uuid']
+        rm_entry(target_entry_uuid)
+    else:
+        raise Exception(f"Unexpected 'event' of type {event['event']}")
+
+def clear_entries_table() -> None:
+    con = get_db_connection()
+
+    try:
+        with con:
+            cur = con.cursor()
+
+            cur.execute("DELETE FROM entries")
+    except:
+        con.close()
+
+def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[str, int, int, int]]:
     con = get_db_connection()
     
     try:
         cur = con.cursor()
         
         cur.execute("""
-            SELECT id, confidence, ts  
+            SELECT id, problem_id, confidence, ts  
             FROM entries
             WHERE problem_id = ?
         """, (problem_id,))
 
         return cur.fetchall()
 
+    finally:
+        con.close()
+
+def get_all_entries() -> List[Tuple[str, int, int, int]]:
+    con = get_db_connection()
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT id, problem_id, confidence, ts FROM entries")
+
+        return cur.fetchall()
     finally:
         con.close()
 
@@ -352,41 +399,6 @@ def check_repo(path : Path) -> bool:
         # The folder doesn't even exist
         return False
 
-def merge_event_histories() -> None:
-    # Load both event histories into memory
-    events_local : List[dict] = load_event_history(LOCAL_EVENT_HISTORY)
-    events_backup : List[dict] = load_event_history(BACKUP_EVENT_HISTORY)
 
-    # Merge the two into a single list
-    combined_events = list({event['id']: event for event in events_backup + events_local}.values())
-    combined_events.sort(key=lambda x : x['ts'])
-
-    return combined_events
-
-def load_event_history(path : Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    
-    events = []
-    with open(path, "r", encoding="utf-8") as f:
-        for ln, line in enumerate(f, 1): 
-            line = line.strip() 
-            if not line:
-                continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise Exception(f"Failed to parse ln {ln} of {f}: {exc}") 
-
-    return events            
-
-def update_event_history_backup(event_history : List[str, Any]) -> None:
-    with open(TMP_EVENT_HISTORY, 'w', encoding="utf-8") as f:
-        for event in event_history: 
-            line = json.dumps(event)
-            f.write(line + '\n')
-
-    # Atomic swap: Replace the backup file with the tmp file
-    TMP_EVENT_HISTORY.replace(BACKUP_EVENT_HISTORY) 
 
 

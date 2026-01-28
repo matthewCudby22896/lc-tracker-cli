@@ -24,6 +24,8 @@ LOCAL_EVENT_HISTORY = DATA_DIR / "event_history_local.jsonl"
 BACKUP_REPO_DIR = get_backup_repo_dir()
 BACKUP_EVENT_HISTORY = BACKUP_REPO_DIR / "event_history_backup.jsonl"
 
-TMP_EVENT_HISTORY = DATA_DIR / "tmp" / "tmp_event_history"
+TMP_EVENT_HISTORY = DATA_DIR / "tmp_event_history.jsonl"
+
+
 
 
