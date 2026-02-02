@@ -7,16 +7,20 @@ import random
 import github
 import git
 import uuid
+import subprocess
 
 
 from .sm2 import SM2 
 from . import access
-from .utility import initial_sync
+from .utility import initial_sync, date_from_ts
 from . import github_client
 from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY
 from . import backup
 
 from typing import Any, Dict, Tuple, List
+
+YELLOW = "\033[33m"
+RESET = "\033[0m"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
@@ -57,14 +61,13 @@ def study():
 
     # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
     typer.echo(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
+
 @app.command(name="set-pat")
 def set_pat():
     PAT = input("Enter github PAT token:").strip()
 
     with access.get_db_connection() as con:
         access.set_state('PAT')
-
-import typer
 
 @app.command(name="ls-active")
 def ls_active():
@@ -212,6 +215,37 @@ def add_entry(
     typer.echo(f"{'Next Review':<15}: {fmt_date(next_review_at)} (in {I_new:.1f} days)")
     typer.echo(f"{'New EF':<15}: {EF_new:.2f}")
     typer.echo("-" * 30)
+
+@app.command(name="log")
+def log():
+    """Show entry logs in a searchable pager."""
+
+    entries = access.get_all_entries()
+    entries.sort(key = lambda x : x[3], reverse=True)
+    output_lines = []
+    
+    for uuid, problem_id, confidence, ts in entries:
+        date_str = date_from_ts(ts)
+        w = 12 
+        entry_block = (
+            f"{YELLOW}commit {uuid}{RESET}\n"
+            f"{'Problem ID:':<{w}} {problem_id}\n"
+            f"{'Confidence:':<{w}} {confidence}/5\n"
+            f"{'Date:':<{w}} {date_str}\n"
+        )
+        output_lines.append(entry_block)
+
+        output_lines.append(entry_block)
+
+    # Join with a newline to separate blocks
+    full_text = "\n".join(output_lines)
+
+    try:
+        process = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE, text=True)
+        process.communicate(input=full_text)
+    except FileNotFoundError:
+        print(full_text)
+
 
 @app.command(name="rm-entry")
 def rm_entry(entry_uuid : str) -> None:

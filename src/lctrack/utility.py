@@ -115,3 +115,6 @@ def initial_sync() -> None:
         logging.error(f"Failed to sync problem set with leetcode.com: {e}")
     finally:
         con.close()
+
+def date_from_ts(unix_ts : int) -> str:
+    return datetime.datetime.fromtimestamp(unix_ts).strftime("%Y-%m-%d %H:%M")
