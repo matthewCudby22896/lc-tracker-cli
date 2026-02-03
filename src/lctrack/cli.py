@@ -9,26 +9,23 @@ import git
 import uuid
 import subprocess
 
-
 from .sm2 import SM2 
 from . import access
 from .utility import initial_sync, date_from_ts
 from . import github_client
-from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY
+from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY, YELLOW, GREEN, RED, PURPLE, CYAN, RESET, BOLD_WHITE
 from . import backup
-
+from rich.progress import track
 from typing import Any, Dict, Tuple, List
 
-YELLOW = "\033[33m"
-RESET = "\033[0m"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
 
 colours = {
-    "Easy": "92",
-    "Medium": "93",
-    "Hard": "91"
+    "Easy": GREEN,
+    "Medium": YELLOW,
+    "Hard": RED
 }
 
 def fmt_date(ts):
@@ -48,7 +45,7 @@ def main():
 
 @app.command(name="study")
 def study():
-    """Picks a problem at random from the set of active problems that are due for review."""
+    """Select a random problem from the set of active problems that are due for review."""
     problems = access.get_for_review_problems()
 
     if not problems:
@@ -57,17 +54,22 @@ def study():
 
     chosen = random.choice(problems)
     
-    color_code = colours.get(chosen.difficulty_txt, "37")
+    colour_code = colours.get(chosen.difficulty_txt)
 
-    # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
-    typer.echo(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
+    if not colour_code:
+        typer.echo(f"An unexpected error has occured: The chosen question's difficulty text was not recognised (problem_id={chosen.problem_id})")
+        raise typer.Exit(1)
+
+    typer.echo(f"To study: LC{chosen.id}. {chosen.title} {colour_code}[{chosen.difficulty_txt}]{RESET}")
 
 @app.command(name="set-pat")
 def set_pat():
-    PAT = input("Enter github PAT token:").strip()
+    PAT = input("Enter github PAT (Personal Access Token):").strip()
 
     with access.get_db_connection() as con:
-        access.set_state('PAT')
+        access.set_state(con, 'PAT', PAT)
+
+    typer.echo(f"PAT succesfully updated.")
 
 @app.command(name="ls-active")
 def ls_active():
@@ -78,13 +80,16 @@ def ls_active():
         typer.echo("Your active study set is empty. Use 'lc-track activate <id>' to add some!")
         return
 
-    typer.echo(f"\033[1mActive Study Set ({len(active_problems)} problems)\033[0m")
-    
-    for p in active_problems:
-        color_code = colours.get(p.difficulty_txt, "37")
+    header = f"{BOLD_WHITE}Active Study Set: ({len(active_problems)} problems){RESET}\n" 
 
-        # Using :<4 to align IDs so the titles start at the same spot
-        typer.echo(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m] \033[1m\033[0m")
+    lines = [header] + [
+        f"LC{p.id:<4}. {p.title:<50} {colours[p.difficulty_txt]}{p.difficulty_txt}{RESET}\n"
+        for p in active_problems
+    ]
+
+    text = "".join(lines)
+    
+    typer.echo(text)
 
 @app.command(name="ls-review")
 def ls_for_review():
@@ -94,15 +99,17 @@ def ls_for_review():
     if not due_problems:
         typer.echo("No problems due for review. You're all caught up!")
         return
-
-    # Using your bold blue style for the header
-    typer.echo(f"\033[1;94mTo review:\033[0m {len(due_problems)} problems pending")
     
-    for p in due_problems:
-        color_code = colours.get(p.difficulty_txt, "37")
-        # Kept the padding and removed the trailing blue bracket bug
-        typer.echo(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m]")
+    header = f"{BOLD_WHITE}Dur For Review: ({len(due_problems)} problems){RESET}\n" 
 
+    lines = [header] + [
+        f"LC{p.id:<4}. {p.title:<50} {colours[p.difficulty_txt]}{p.difficulty_txt}{RESET}\n"
+        for p in due_problems
+    ]
+
+    text = "".join(lines)
+    
+    typer.echo(text)
 
 @app.command(name="activate")
 def activate(id: int) -> None:
