@@ -62,15 +62,6 @@ def study():
 
     typer.echo(f"To study: LC{chosen.id}. {chosen.title} {colour_code}[{chosen.difficulty_txt}]{RESET}")
 
-@app.command(name="set-pat")
-def set_pat():
-    PAT = input("Enter github PAT (Personal Access Token):").strip()
-
-    with access.get_db_connection() as con:
-        access.set_state(con, 'PAT', PAT)
-
-    typer.echo(f"PAT succesfully updated.")
-
 @app.command(name="ls-active")
 def ls_active():
     """ List all problems currently in the active study set. """
@@ -107,13 +98,15 @@ def ls_for_review():
         for p in due_problems
     ]
 
-    text = "".join(lines)
+    output = "".join(lines)
     
-    typer.echo(text)
+    typer.echo(output)
 
 @app.command(name="activate")
 def activate(id: int) -> None:
-    """ Add a problem (by its id) to the active study set. """
+    """ Add a problem to the active study set. 
+    Usage: lc-track activate <problem id>
+    """
     problem = access.get_problem(id)
     
     if not problem:
@@ -130,52 +123,79 @@ def activate(id: int) -> None:
 
     typer.echo(f"{BOLD_WHITE}Added to active study set:{RESET} {problem_txt}")
 
+
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
-    """ Remove a problem (by its id) from the active study set. """
+    """ Remove a problem from the active study set. 
+    Usage: lc-track deactivate <problem id>
+    """
     problem = access.get_problem(id)
     
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    color_code = colours.get(problem.difficulty_txt, "37")
-    
+    problem_txt = f"LC{id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
+
     if not problem.active:
-        typer.echo(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is not in the active study set.")
-        return
+        typer.echo(f"{problem_txt} is not in the active study set.")
+        raise typer.Exit(1)
 
     access.set_active(id, False)
 
-    typer.echo(f"\033[1;94mRemoved from active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
-
+    typer.echo(f"{BOLD_WHITE}Removed from active study set:{RESET} {problem_txt}")
 
 @app.command(name="details")
 def details(id: int) -> None:
-    """ Show the details of a LC problem. """
+    """ Show the details of a LC problem. 
+    Usage: lc-track details <problem id>
+    """
     problem = access.get_problem(id)
-    # topics is already a list of strings: ["Array", "Hash Table"]
-    topics = access.get_problem_topics(id)
     
     if not problem: 
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    BW = "\033[1;37m"        # Bold White
-    RESET = "\033[0m"        # Full Reset
-    color_code = colours.get(problem.difficulty_txt, "37")
-    diff_color = f"\033[{color_code}m"
+    topics = access.get_problem_topics(id)
+    now = datetime.datetime.now()
 
-    typer.echo(f"{BW}LC{problem.id}. {problem.title} [{RESET}{diff_color}{problem.difficulty_txt}{RESET}{BW}]{RESET}")
+    # Header
+    problem_header = f"{BOLD_WHITE}LC{id}. {problem.title}{RESET} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
 
-    if topics:
-        typer.echo(f"Topics: {', '.join(topics)}")
-    typer.echo("")
-    typer.echo(f"Last Review: {fmt_date(problem.last_review_at)}")
-    typer.echo(f"Next Review: {fmt_date(problem.next_review_at)}")
-    typer.echo(f"Interval:    {problem.i:.0f} days")
-    typer.echo(f"Repetitions: {problem.n}")
-    typer.echo(f"Easiness:    {problem.ef:.2f}\n")
+    # Last review text
+    if problem.last_review_at is not None:
+        last_dt = datetime.datetime.fromtimestamp(problem.last_review_at)
+        days_past = (now - last_dt).days
+        last_review_txt = f"{date_from_ts(problem.last_review_at)} ({days_past} days ago)"
+    else:
+        last_review_txt = "Never"
+
+    # Next review text
+    if not problem.active:
+        next_review_txt = "N/A (not in study set)"
+    elif problem.next_review_at:
+        next_dt = datetime.datetime.fromtimestamp(problem.next_review_at)
+        next_date_txt = date_from_ts(problem.next_review_at)
+
+        if now >= next_dt:
+            next_review_txt = f"{next_date_txt} (due for review)"
+        else:
+            diff = next_dt - now
+            days = diff.days
+            hours = diff.seconds // 3600
+            next_review_txt = f"{next_date_txt} (due in {days} days, {hours} hours)"
+
+    output = [
+            problem_header,
+            f"Topics: {', '.join(topics)}",
+            f"Last Review: {last_review_txt}",
+            f"Next Review: {next_review_txt}",
+            f"Interval: {problem.i:}",
+            f"Repitition: {problem.n:}",
+            f"Easiness Factor: {problem.ef:.2f}"
+    ]
+
+    typer.echo("\n".join(output))
 
 @app.command(name="add-entry")
 def add_entry(
