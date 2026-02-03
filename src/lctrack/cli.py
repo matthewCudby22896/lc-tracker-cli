@@ -37,11 +37,12 @@ def main():
     LeetCode-Track CLI
     """
     if not access.db_exists():
+        typer.echo("Initialising lc-track local database...") 
         access.init_db()
-        logging.info("lc-track database initialised.") 
 
-    if access.get_state("initial_sync") != "complete":
+    if access.db_exists() and access.get_state("initial_sync") != "complete":
         initial_sync()
+        typer.echo(f"{BOLD_WHITE}lc-track setup complete.{RESET}\n")
 
 @app.command(name="study")
 def study():
@@ -285,8 +286,6 @@ def log():
         process.communicate(input=full_text)
     except FileNotFoundError:
         print(full_text)
-
-
 
 
 @app.command(name="set-pat")
