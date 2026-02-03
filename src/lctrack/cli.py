@@ -16,7 +16,7 @@ from . import github_client
 from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY, YELLOW, GREEN, RED, PURPLE, CYAN, RESET, BOLD_WHITE
 from . import backup
 from rich.progress import track
-from typing import Any, Dict, Tuple, List
+from typing import Annotated, Any, Dict, Tuple, List
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -200,9 +200,10 @@ def details(id: int) -> None:
 @app.command(name="add-entry")
 def add_entry(
     id: int,
-    confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=click.IntRange(0, 5)),
+    confidence: int = Annotated[int, typer.Argument(min=0, max=5, help="Confidence rating (0-5)")]
 ) -> None:
     """ Log a completion and update the SM-2 state.
+    Usage: lc-track add-entry <problem id> <confidence [0-5]>
     """
     now_unix_ts = int(datetime.datetime.now().timestamp())
 
@@ -242,6 +243,19 @@ def add_entry(
     typer.echo(f"{'New EF':<15}: {EF_new:.2f}")
     typer.echo("-" * 30)
 
+@app.command(name="rm-entry")
+def rm_entry(entry_uuid : str) -> None:
+    """ Remove an entry and update the SM2 state.
+    Usage: lc-track rm-entry <entry uuid>
+    """
+    try:
+        problem_id = access.rm_entry(entry_uuid)
+    except Exception as exc:
+        logging.error(f"Failed to remove entry: {exc}")
+        raise typer.Exit(1)
+
+    logging.info(f"Record {entry_uuid} removed. LC {problem_id} state recalculated.")
+
 @app.command(name="log")
 def log():
     """Show entry logs in a searchable pager."""
@@ -273,23 +287,12 @@ def log():
         print(full_text)
 
 
-@app.command(name="rm-entry")
-def rm_entry(entry_uuid : str) -> None:
-    """ Remove an entry and update the SM2 state.
-    """
-    try:
-        problem_id = access.rm_entry(entry_uuid)
-    except Exception as exc:
-        logging.error(f"Failed to remove entry: {exc}")
-        raise typer.Exit(1)
-
-    logging.info(f"Record {entry_uuid} removed. LC {problem_id} state recalculated.")
 
 
 @app.command(name="set-pat")
 def set_pat(pat: str = typer.Argument(..., help="Your GitHub Personal Access Token")):
     """
-    Store your GitHub Personal Access Token in the local database.
+    Update / set your GitHub Personal Access Token in the local database.
     Usage: lc-track set-pat <PAT>
     """
     try:
