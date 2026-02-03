@@ -118,18 +118,17 @@ def activate(id: int) -> None:
     
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    color_code = colours.get(problem.difficulty_txt, "37")
+    problem_txt = f"LC{id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
 
     if problem.active:
-        typer.echo(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is already in the active study set.")
-        return
+        typer.echo(f"{problem_txt} is already in the active study set.")
+        raise typer.Exit(1)
 
     access.set_active(id, True)
 
-    # Bold blue label followed by the colored problem info
-    typer.echo(f"\033[1;94mAdded to active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
+    typer.echo(f"{BOLD_WHITE}Added to active study set:{RESET} {problem_txt}")
 
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
