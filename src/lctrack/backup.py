@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 from .constants import TMP_EVENT_HISTORY, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
-from .sm2 import SM2
+from .logic import SM2
 from . import access
 
 def merge_event_histories(hist1 : Path, hist2 : Path) -> List[Dict[str, Any]]:

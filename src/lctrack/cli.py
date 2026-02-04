@@ -9,7 +9,7 @@ import git
 import uuid
 import subprocess
 
-from .logic import SM2, calculate_new_state
+from .logic import calculate_new_state
 from . import access
 from .utility import initial_sync, date_from_ts
 from . import github_client
@@ -242,15 +242,17 @@ def add_entry(
         if con:
             con.close()
 
-    header_line = f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}\n" 
-    problem_line = f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]\n"
-    confidence_line = f"Confidence: {confidence}\n" 
+    header_line = f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}" 
+    problem_line = f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
+    confidence_line = f"Confidence: {confidence}" 
+    streak_line = f"Streak: {n}"
     nxt_review_line = f"Next Review: {date_from_ts(next_rev_ts)}"
 
-    output = "".join([
+    output = '\n'.join([
         header_line,
         problem_line,
         confidence_line,
+        streak_line,
         nxt_review_line
     ])
 

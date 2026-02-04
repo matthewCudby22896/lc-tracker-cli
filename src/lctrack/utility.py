@@ -3,10 +3,9 @@ import datetime
 import logging
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
-from rich.progress import track
 
 from .constants import BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
-from .sm2 import SM2
+from .logic import SM2
 from .lc_client import fetch_all_problems
 from . import access
 
