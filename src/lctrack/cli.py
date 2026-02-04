@@ -9,7 +9,7 @@ import git
 import uuid
 import subprocess
 
-from .sm2 import SM2 
+from .logic import SM2, calculate_new_state
 from . import access
 from .utility import initial_sync, date_from_ts
 from . import github_client
@@ -201,48 +201,61 @@ def details(id: int) -> None:
 @app.command(name="add-entry")
 def add_entry(
     id: int,
-    confidence: int = Annotated[int, typer.Argument(min=0, max=5, help="Confidence rating (0-5)")]
+    confidence: Annotated[int, typer.Argument(min=0, max=5, help="Confidence rating (0-5)")]
 ) -> None:
     """ Log a completion and update the SM-2 state.
     Usage: lc-track add-entry <problem id> <confidence [0-5]>
     """
-    now_unix_ts = int(datetime.datetime.now().timestamp())
+    # Get current time
+    now_ts = int(datetime.datetime.now().timestamp())
 
+    # Ensure the problem exists
     problem = access.get_problem(id) 
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        raise typer.Exit(code=1)
-
-    # 1. Save the record
-    try:
-
-        record_id = access.insert_entry(str(uuid.uuid4()), id, confidence, now_unix_ts)
-    except Exception as exc: 
-        logging.error(f"Failed to insert entry into local database: {exc}")
         raise typer.Exit(1)
 
-    # 2. Get the problems current SM-2 state 
-    n, EF, I = problem.n, problem.ef, problem.i
+    # Calculate the new state of the problem, based of the provided confidence rating (0-5)
+    n, ef, i, next_rev_ts = calculate_new_state(problem.n, problem.ef, problem.i, confidence, now_ts)
+    entry_uuid = str(uuid.uuid4()) # This uniquely identifies the entry AND the ADD_ENTRY event
 
-    # 3. Calculate the new SM2 state
-    n_new, EF_new, I_new = SM2(confidence, n, EF, I)
-    next_review_at = now_unix_ts + int(I_new * 86400)
+    # Update program state in single atomic transaction
+    try: 
+        con = access.get_db_connection()
+        with con:
+            # Insert entry (ADD_ENTRY event logged as side effect)
+            access.add_entry(con, entry_uuid, problem.id, confidence, now_ts)
+            access.update_SM2_state(
+                con,
+                problem.id,
+                n,
+                ef,
+                i,
+                now_ts,
+                next_rev_ts
+            ) 
 
-    # 4. Update the state of the problem
-    try:
-        access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
     except Exception as exc:
-        logging.error(f"Failed to update SM2 state of problem: {exc}")
+        typer.echo(f"Failed to log entry: {exc}")
         raise typer.Exit(1)
+    finally:
+        if con:
+            con.close()
 
-    typer.echo("-" * 30)
-    typer.echo(f"Record Saved [ID: {record_id}]")
-    typer.echo("-" * 30)
-    typer.echo(f"{'Problem ID':<15}: {id}")
-    typer.echo(f"{'Confidence':<15}: {confidence}/5")
-    typer.echo(f"{'Next Review':<15}: {fmt_date(next_review_at)} (in {I_new:.1f} days)")
-    typer.echo(f"{'New EF':<15}: {EF_new:.2f}")
-    typer.echo("-" * 30)
+    header_line = f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}\n" 
+    problem_line = f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]\n"
+    confidence_line = f"Confidence: {confidence}\n" 
+    nxt_review_line = f"Next Review: {date_from_ts(next_rev_ts)}"
+
+    output = "".join([
+        header_line,
+        problem_line,
+        confidence_line,
+        nxt_review_line
+    ])
+
+    typer.echo(output)
+
 
 @app.command(name="rm-entry")
 def rm_entry(entry_uuid : str) -> None:

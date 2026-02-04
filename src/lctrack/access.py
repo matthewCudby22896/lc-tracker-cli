@@ -8,7 +8,7 @@ import git
 from pathlib import Path
 from typing import Dict, Tuple, List, Any, Optional
 
-from .sm2 import SM2
+from .logic import SM2
 from .ds import Problem
 from .constants import DB_FILE, LOCAL_EVENT_HISTORY, BACKUP_EVENT_HISTORY, TMP_EVENT_HISTORY
 
@@ -50,24 +50,24 @@ def get_active() -> List[Problem]:
     finally:
         con.close()
 
-def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : int, next_review_at : int) -> None:
-    con = get_db_connection()
+def update_SM2_state(con : sqlite3.Connection, 
+                     id : int,
+                     n : int,
+                     ef : float,
+                     i : int, 
+                     last_review_ts : int,
+                     next_review_ts : int) -> None:
+    cur = con.cursor()
 
-    try:
-        with con:
-            cur = con.cursor()
-
-            cur.execute("""
-                UPDATE problems
-                SET n = ?,
-                    ef = ?,
-                    i = ?,
-                    last_review_at = ?,
-                    next_review_at = ?
-                WHERE id = ?
-            """, (n, EF, I, int(last_review_at), int(next_review_at), id))
-    finally:
-        con.close()
+    cur.execute("""
+        UPDATE problems
+        SET n = ?,
+            ef = ?,
+            i = ?,
+            last_review_at = ?,
+            next_review_at = ?
+        WHERE id = ?
+    """, (n, ef, i, int(last_review_ts), int(next_review_ts), id))
 
 def bulk_update_SM2_state(new_states : List[int, float, int, int, int, int]) -> None:
     con = get_db_connection()
@@ -91,7 +91,7 @@ def append_event(event: Dict[str, Any]) -> None:
 def create_add_entry_event(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> Dict[str, Any]:
     """Returns a dictionary representing an ADD_ENTRY event with a unique ID."""
     return {
-        "id": entry_uuid, # Uniquely identifies the event
+        "id": entry_uuid, # Uniquely identifies the event & the corresponding entry
         "event": "ADD_ENTRY",
         "problem_id": problem_id,
         "confidence": confidence,
@@ -106,30 +106,23 @@ def create_rm_entry_event(entry_uuid : int, ts : int) -> Dict[str, Any]:
         "ts" : ts # For ordered replay
     }
 
-def insert_entry(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> int:
+def add_entry(con : sqlite3.Connection, entry_uuid : str, problem_id: int, confidence: int, ts: int) -> int:
+    cur = con.cursor()
 
-    con = get_db_connection()
+    cur.execute(
+        """
+        INSERT INTO entries (id, problem_id, confidence, ts) 
+        VALUES (?, ?, ?, ?)
+        """,
+        (entry_uuid, problem_id, confidence, ts)
+    )
 
-    try:
-        with con:
-            cur = con.cursor()
-
-            cur.execute(
-                """
-                INSERT INTO entries (id, problem_id, confidence, ts) 
-                VALUES (?, ?, ?, ?)
-                """,
-                (entry_uuid, problem_id, confidence, ts)
-            )
-
-            # If the above succeeds, append a ADD_ENTRY
-            append_event(
-                create_add_entry_event(entry_uuid, problem_id, confidence, ts)
-            )
-            
-            return entry_uuid
-    finally:
-        con.close()
+    # If the above succeeds, append a ADD_ENTRY
+    append_event(
+        create_add_entry_event(entry_uuid, problem_id, confidence, ts)
+    )
+    
+    return entry_uuid
 
 def rm_entry(entry_uuid : str) -> int:
     """ Removes a specific entry from the local database, then recalculates
@@ -212,7 +205,7 @@ def process_event(event) -> None:
         event_uuid, problem_id, confidence, ts = (
             event['id'], event['problem_id'], event['confidence'], event['ts']
         )
-        insert_entry(event_uuid, problem_id, confidence, ts)
+        add_entry(event_uuid, problem_id, confidence, ts)
          
     elif event['event'] == "RM_ENTRY":
         target_entry_uuid  = event['target_entry_uuid']

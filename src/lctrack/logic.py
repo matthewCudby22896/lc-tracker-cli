@@ -13,7 +13,7 @@ def SM2(q : int,
             elif n == 1:
                 I = 6
             else:
-                I = I * EF
+                I = round(I * EF)
             n += 1
         else: # (incorrect response)
             n = 0
@@ -25,3 +25,21 @@ def SM2(q : int,
         
         return n, EF, I
         
+def calculate_new_state(n : int, ef : float, i : int, confidence : int, now_ts : int) -> Tuple[int, float, int, int]:
+    """ 
+    """
+    assert 0 <= confidence <= 5, "Confidence must be in range (0-5)"
+
+    n, ef, i = SM2(confidence, n, ef, i)
+
+    next_review_at = now_ts + (i * 86400)
+
+    return n, ef, i, next_review_at
+
+
+
+
+
+
+
+    
