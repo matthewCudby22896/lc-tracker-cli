@@ -235,6 +235,11 @@ def add_entry(
                 next_rev_ts
             ) 
 
+            # Write event to event history, if this fails the above two changes will be rolled back
+            access.append_event(
+                access.create_add_entry_event(entry_uuid, problem.id, confidence, now_ts)
+            )
+
     except Exception as exc:
         typer.echo(f"Failed to log entry: {exc}")
         raise typer.Exit(1)
@@ -242,30 +247,45 @@ def add_entry(
         if con:
             con.close()
 
-    header_line = f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}" 
-    problem_line = f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
-    confidence_line = f"Confidence: {confidence}" 
-    streak_line = f"Streak: {n}"
-    nxt_review_line = f"Next Review: {date_from_ts(next_rev_ts)}"
-
-    output = '\n'.join([
-        header_line,
-        problem_line,
-        confidence_line,
-        streak_line,
-        nxt_review_line
-    ])
+    output = (
+            f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}\n"
+            f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]\n"
+            f"Confidence: {confidence}\n"
+            f"Streak: {n}\n"
+            f"Next Review: {date_from_ts(next_rev_ts)}"
+        )
 
     typer.echo(output)
 
 
+# TODO: Implement proper access.rm_entry that only removes an entry from database
+# TODO: ... + implement proper logic.rm_entry that utilises the access.rm_entry whilst also implementing the state recalc logic
 @app.command(name="rm-entry")
 def rm_entry(entry_uuid : str) -> None:
     """ Remove an entry and update the SM2 state.
     Usage: lc-track rm-entry <entry uuid>
     """
+    access.get_entry(entry_uuid)
+
+    con = None
     try:
-        problem_id = access.rm_entry(entry_uuid)
+        con =  access.get_db_connection()
+        access.rm_entry(entry_uuid)
+    except Exception as exc:
+        typer.echo(f"Failed to rm entry: {exc}")
+        raise typer.Exit(1)
+    finally:
+        if con:
+            con.close()
+
+    # Get the entry by it's uuid
+
+    # Within a single transaction, delete the entry, get all of the remaining entries
+    # ... re-calculate the problem state based of said entries if all of the above succeeds
+    # ... THEN append a RM_ENTRY event to the event history
+
+    try:
+        problem_id = logic.rm_entry(entry_uuid)
     except Exception as exc:
         logging.error(f"Failed to remove entry: {exc}")
         raise typer.Exit(1)

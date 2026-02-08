@@ -1,6 +1,57 @@
 
-from dataclasses import dataclass
-from typing import Optional
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
+from typing import ClassVar, Final, Optional, Tuple, Dict, Any
+
+UUID = str
+
+@dataclass 
+class Entry:
+    uuid : UUID
+    problem_id : int
+    confidence: int
+    ts : int
+
+    @classmethod
+    def from_row(cls, row: tuple) -> Entry:
+        return Entry(
+            uuid=row[0],
+            problem_id=row[1],
+            confidence=row[2],
+            ts=row[3]
+        )
+    
+    def to_row(self) -> Tuple[str, int, int, int]:
+        return (self.uuid, self.problem_id, self.confidence, self.ts)
+
+@dataclass
+class BaseEvent(ABC):  # Inherit from ABC
+    uuid: UUID
+    ts: int
+
+    # This forces subclasses to define EVENT_TYPE
+    @property
+    @abstractmethod
+    def EVENT_TYPE(self) -> str:
+        pass
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data["EVENT_TYPE"] = self.EVENT_TYPE
+        return data
+
+@dataclass
+class AddEntryEvent(BaseEvent):
+    EVENT_TYPE: ClassVar[Final[str]] = "ADD_ENTRY"
+    
+    entry_uuid: UUID
+    problem_id: int
+    confidence: int
+
+@dataclass
+class RmEntryEvent(BaseEvent):
+    EVENT_TYPE: ClassVar[Final[str]] = "RM_ENTRY"
+    target_entry_uuid: UUID
 
 @dataclass
 class Problem:
@@ -17,7 +68,7 @@ class Problem:
     active : bool
 
     @classmethod
-    def from_row(cls, row: tuple):
+    def from_row(cls, row: tuple) -> Problem:
         return cls(
             id=row[0],
             slug=row[1],

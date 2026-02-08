@@ -77,7 +77,7 @@ def update_state_from_local_event_history() -> None:
 
     # 2. Process all events in chronological order
     for event in events:
-        access.process_event(event)
+        access.process_jsonl_event(event)
     
     # 3. Update the state of all problems based of the entries under the entries table
     entries = access.get_all_entries() 
