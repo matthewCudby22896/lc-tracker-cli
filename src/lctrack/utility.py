@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 
 from .constants import BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
-from .sm2 import SM2
+from .logic import SM2
 from .lc_client import fetch_all_problems
 from . import access
 
@@ -115,3 +115,6 @@ def initial_sync() -> None:
         logging.error(f"Failed to sync problem set with leetcode.com: {e}")
     finally:
         con.close()
+
+def date_from_ts(unix_ts : int) -> str:
+    return datetime.datetime.fromtimestamp(unix_ts).strftime("%Y-%m-%d %H:%M")

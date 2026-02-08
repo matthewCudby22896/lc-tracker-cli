@@ -1,9 +1,9 @@
 import requests
 import logging
+import typer
+from rich.progress import track
 
 from typing import Any, Dict, Tuple, List
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 ALL_PROBLEMS_URL = "https://leetcode.com/api/problems/all/"
 GRAPHQL_ENDPOINT = "https://leetcode.com/graphql"
@@ -50,34 +50,40 @@ def fetch_all_problems() -> List[Dict[str, Any]]:
     }
     total = None
 
-    logging.info("Fetching complete problem set from leetcode.com ...")
+    typer.echo("Fetching leetcode problem set from leetcode.com...")
+
     try:
-        while True:
-            payload['variables']['skip'] = skip
-            res = session.post(url, json=payload)
-            res.raise_for_status()
+      # Make initial request (first 100 problems)
+      payload['variables']['skip'] = skip
+      res = session.post(url, json=payload)
+      res.raise_for_status()
 
-            data = res.json()
+      data = res.json()
+      total = data['data']['problemsetQuestionList']['totalNum'] # total no. problems to fetch
 
-            if total is None:
-                total = data['data']['problemsetQuestionList']['totalNum'] # The total number of questions
-            
-            # Extract the problems in this batch
-            question_batch = data['data']['problemsetQuestionList']['questions']
-            all_questions.extend(question_batch)
+      question_batch = data['data']['problemsetQuestionList']['questions']
+      all_questions.extend(question_batch)
 
-            pct_complete = min(skip + limit, total) / total
-            logging.info(f"Progress: {min(skip + limit, total)}/{total} problems fetched ({pct_complete:.1%})")
+      # Fetch the rest
+      for skip in track(range(100, total, 100)):
+          payload['variables']['skip'] = skip
+          res = session.post(url, json=payload)
+          res.raise_for_status()
 
-            if skip + limit > total:
-                break
-                
-            skip += limit
+          data = res.json()
 
-    except Exception as e:
-        logging.error(f"Failed to fetch problem set from leetcode.com: {e}")
-        return None
+          if total is None:
+              total = data['data']['problemsetQuestionList']['totalNum'] # The total number of questions
+          
+          # Extract the problems in this batch
+          question_batch = data['data']['problemsetQuestionList']['questions']
+          all_questions.extend(question_batch)
+        
+
+    except Exception as exc:
+      typer.echo(f"An unexpected exception occured whilst fetching problems from leetcode.com: {exc}")
+      raise typer.Exit(1)
     
-    logging.info(f"{len(all_questions)} problems fetched.")
+    typer.echo(f"All {len(all_questions)} problems succesfully fetched and stored from leetcode.com")
 
     return all_questions

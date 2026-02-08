@@ -7,24 +7,25 @@ import random
 import github
 import git
 import uuid
+import subprocess
 
-
-from .sm2 import SM2 
+from .logic import calculate_new_state
 from . import access
-from .utility import initial_sync
+from .utility import initial_sync, date_from_ts
 from . import github_client
-from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY
+from .constants import BACKUP_REPO_DIR, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY, TMP_EVENT_HISTORY, YELLOW, GREEN, RED, PURPLE, CYAN, RESET, BOLD_WHITE
 from . import backup
+from rich.progress import track
+from typing import Annotated, Any, Dict, Tuple, List
 
-from typing import Any, Dict, Tuple, List
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 app = typer.Typer(add_completion=False)
 
 colours = {
-    "Easy": "92",
-    "Medium": "93",
-    "Hard": "91"
+    "Easy": GREEN,
+    "Medium": YELLOW,
+    "Hard": RED
 }
 
 def fmt_date(ts):
@@ -36,15 +37,16 @@ def main():
     LeetCode-Track CLI
     """
     if not access.db_exists():
+        typer.echo("Initialising lc-track local database...") 
         access.init_db()
-        logging.info("lc-track database initialised.") 
 
-    if access.get_state("initial_sync") != "complete":
+    if access.db_exists() and access.get_state("initial_sync") != "complete":
         initial_sync()
+        typer.echo(f"{BOLD_WHITE}lc-track setup complete.{RESET}\n")
 
 @app.command(name="study")
 def study():
-    """Picks a problem at random from the set of active problems that are due for review."""
+    """Select a random problem from the set of active problems that are due for review."""
     problems = access.get_for_review_problems()
 
     if not problems:
@@ -53,18 +55,13 @@ def study():
 
     chosen = random.choice(problems)
     
-    color_code = colours.get(chosen.difficulty_txt, "37")
+    colour_code = colours.get(chosen.difficulty_txt)
 
-    # \033[94m: Blue label | \033[0m: Reset | \033[{color_code}m: Difficulty color
-    typer.echo(f"\033[1;94mTo study:\033[0m LC{chosen.id}. {chosen.title} [\033[{color_code}m{chosen.difficulty_txt}\033[0m]")
-@app.command(name="set-pat")
-def set_pat():
-    PAT = input("Enter github PAT token:").strip()
+    if not colour_code:
+        typer.echo(f"An unexpected error has occured: The chosen question's difficulty text was not recognised (problem_id={chosen.problem_id})")
+        raise typer.Exit(1)
 
-    with access.get_db_connection() as con:
-        access.set_state('PAT')
-
-import typer
+    typer.echo(f"To study: LC{chosen.id}. {chosen.title} {colour_code}[{chosen.difficulty_txt}]{RESET}")
 
 @app.command(name="ls-active")
 def ls_active():
@@ -75,13 +72,16 @@ def ls_active():
         typer.echo("Your active study set is empty. Use 'lc-track activate <id>' to add some!")
         return
 
-    typer.echo(f"\033[1mActive Study Set ({len(active_problems)} problems)\033[0m")
-    
-    for p in active_problems:
-        color_code = colours.get(p.difficulty_txt, "37")
+    header = f"{BOLD_WHITE}Active Study Set: ({len(active_problems)} problems){RESET}\n" 
 
-        # Using :<4 to align IDs so the titles start at the same spot
-        typer.echo(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m] \033[1m\033[0m")
+    lines = [header] + [
+        f"LC{p.id:<4}. {p.title:<50} {colours[p.difficulty_txt]}{p.difficulty_txt}{RESET}\n"
+        for p in active_problems
+    ]
+
+    text = "".join(lines)
+    
+    typer.echo(text)
 
 @app.command(name="ls-review")
 def ls_for_review():
@@ -91,145 +91,242 @@ def ls_for_review():
     if not due_problems:
         typer.echo("No problems due for review. You're all caught up!")
         return
-
-    # Using your bold blue style for the header
-    typer.echo(f"\033[1;94mTo review:\033[0m {len(due_problems)} problems pending")
     
-    for p in due_problems:
-        color_code = colours.get(p.difficulty_txt, "37")
-        # Kept the padding and removed the trailing blue bracket bug
-        typer.echo(f"LC{p.id:<4}. {p.title:<35} [\033[{color_code}m{p.difficulty_txt}\033[0m]")
+    header = f"{BOLD_WHITE}Dur For Review: ({len(due_problems)} problems){RESET}\n" 
 
+    lines = [header] + [
+        f"LC{p.id:<4}. {p.title:<50} {colours[p.difficulty_txt]}{p.difficulty_txt}{RESET}\n"
+        for p in due_problems
+    ]
+
+    output = "".join(lines)
+    
+    typer.echo(output)
 
 @app.command(name="activate")
 def activate(id: int) -> None:
-    """ Add a problem (by its id) to the active study set. """
+    """ Add a problem to the active study set. 
+    Usage: lc-track activate <problem id>
+    """
     problem = access.get_problem(id)
     
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    color_code = colours.get(problem.difficulty_txt, "37")
+    problem_txt = f"LC{id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
 
     if problem.active:
-        typer.echo(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is already in the active study set.")
-        return
+        typer.echo(f"{problem_txt} is already in the active study set.")
+        raise typer.Exit(1)
 
     access.set_active(id, True)
 
-    # Bold blue label followed by the colored problem info
-    typer.echo(f"\033[1;94mAdded to active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
+    typer.echo(f"{BOLD_WHITE}Added to active study set:{RESET} {problem_txt}")
+
 
 @app.command(name="deactivate")
 def deactivate(id: int) -> None:
-    """ Remove a problem (by its id) from the active study set. """
+    """ Remove a problem from the active study set. 
+    Usage: lc-track deactivate <problem id>
+    """
     problem = access.get_problem(id)
     
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    color_code = colours.get(problem.difficulty_txt, "37")
-    
+    problem_txt = f"LC{id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
+
     if not problem.active:
-        typer.echo(f"LC{id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m] is not in the active study set.")
-        return
+        typer.echo(f"{problem_txt} is not in the active study set.")
+        raise typer.Exit(1)
 
     access.set_active(id, False)
 
-    typer.echo(f"\033[1;94mRemoved from active set:\033[0m LC{problem.id}. {problem.title} [\033[{color_code}m{problem.difficulty_txt}\033[0m]")
-
+    typer.echo(f"{BOLD_WHITE}Removed from active study set:{RESET} {problem_txt}")
 
 @app.command(name="details")
 def details(id: int) -> None:
-    """ Show the details of a LC problem. """
+    """ Show the details of a LC problem. 
+    Usage: lc-track details <problem id>
+    """
     problem = access.get_problem(id)
-    # topics is already a list of strings: ["Array", "Hash Table"]
-    topics = access.get_problem_topics(id)
     
     if not problem: 
         typer.echo(f"No problem found with id: {id}")
-        return
+        raise typer.Exit(1)
 
-    BW = "\033[1;37m"        # Bold White
-    RESET = "\033[0m"        # Full Reset
-    color_code = colours.get(problem.difficulty_txt, "37")
-    diff_color = f"\033[{color_code}m"
+    topics = access.get_problem_topics(id)
+    now = datetime.datetime.now()
 
-    typer.echo(f"{BW}LC{problem.id}. {problem.title} [{RESET}{diff_color}{problem.difficulty_txt}{RESET}{BW}]{RESET}")
+    # Header
+    problem_header = f"{BOLD_WHITE}LC{id}. {problem.title}{RESET} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]"
 
-    if topics:
-        typer.echo(f"Topics: {', '.join(topics)}")
-    typer.echo("")
-    typer.echo(f"Last Review: {fmt_date(problem.last_review_at)}")
-    typer.echo(f"Next Review: {fmt_date(problem.next_review_at)}")
-    typer.echo(f"Interval:    {problem.i:.0f} days")
-    typer.echo(f"Repetitions: {problem.n}")
-    typer.echo(f"Easiness:    {problem.ef:.2f}\n")
+    # Last review text
+    if problem.last_review_at is not None:
+        last_dt = datetime.datetime.fromtimestamp(problem.last_review_at)
+        days_past = (now - last_dt).days
+        last_review_txt = f"{date_from_ts(problem.last_review_at)} ({days_past} days ago)"
+    else:
+        last_review_txt = "Never"
+
+    # Next review text
+    if not problem.active:
+        next_review_txt = "N/A (not in study set)"
+    elif problem.next_review_at:
+        next_dt = datetime.datetime.fromtimestamp(problem.next_review_at)
+        next_date_txt = date_from_ts(problem.next_review_at)
+
+        if now >= next_dt:
+            next_review_txt = f"{next_date_txt} (due for review)"
+        else:
+            diff = next_dt - now
+            days = diff.days
+            hours = diff.seconds // 3600
+            next_review_txt = f"{next_date_txt} (due in {days} days, {hours} hours)"
+
+    output = [
+            problem_header,
+            f"Topics: {', '.join(topics)}",
+            f"Last Review: {last_review_txt}",
+            f"Next Review: {next_review_txt}",
+            f"Interval: {problem.i:}",
+            f"Repitition: {problem.n:}",
+            f"Easiness Factor: {problem.ef:.2f}"
+    ]
+
+    typer.echo("\n".join(output))
 
 @app.command(name="add-entry")
 def add_entry(
     id: int,
-    confidence: int = typer.Option(..., help="Confidence rating (0–5)", click_type=click.IntRange(0, 5)),
+    confidence: Annotated[int, typer.Argument(min=0, max=5, help="Confidence rating (0-5)")]
 ) -> None:
     """ Log a completion and update the SM-2 state.
+    Usage: lc-track add-entry <problem id> <confidence [0-5]>
     """
-    now_unix_ts = int(datetime.datetime.now().timestamp())
+    # Get current time
+    now_ts = int(datetime.datetime.now().timestamp())
 
+    # Ensure the problem exists
     problem = access.get_problem(id) 
     if not problem:
         typer.echo(f"No problem found with id: {id}")
-        raise typer.Exit(code=1)
-
-    # 1. Save the record
-    try:
-
-        record_id = access.insert_entry(str(uuid.uuid4()), id, confidence, now_unix_ts)
-    except Exception as exc: 
-        logging.error(f"Failed to insert entry into local database: {exc}")
         raise typer.Exit(1)
 
-    # 2. Get the problems current SM-2 state 
-    n, EF, I = problem.n, problem.ef, problem.i
+    # Calculate the new state of the problem, based of the provided confidence rating (0-5)
+    n, ef, i, next_rev_ts = calculate_new_state(problem.n, problem.ef, problem.i, confidence, now_ts)
+    entry_uuid = str(uuid.uuid4()) # This uniquely identifies the entry AND the ADD_ENTRY event
 
-    # 3. Calculate the new SM2 state
-    n_new, EF_new, I_new = SM2(confidence, n, EF, I)
-    next_review_at = now_unix_ts + int(I_new * 86400)
+    # Update program state in single atomic transaction
+    try: 
+        con = access.get_db_connection()
+        with con:
+            # Insert entry (ADD_ENTRY event logged as side effect)
+            access.add_entry(con, entry_uuid, problem.id, confidence, now_ts)
+            access.update_SM2_state(
+                con,
+                problem.id,
+                n,
+                ef,
+                i,
+                now_ts,
+                next_rev_ts
+            ) 
 
-    # 4. Update the state of the problem
-    try:
-        access.update_SM2_state(id, n_new, EF_new, I_new, now_unix_ts, next_review_at)
+            # Write event to event history, if this fails the above two changes will be rolled back
+            access.append_event(
+                access.create_add_entry_event(entry_uuid, problem.id, confidence, now_ts)
+            )
+
     except Exception as exc:
-        logging.error(f"Failed to update SM2 state of problem: {exc}")
+        typer.echo(f"Failed to log entry: {exc}")
         raise typer.Exit(1)
+    finally:
+        if con:
+            con.close()
 
-    typer.echo("-" * 30)
-    typer.echo(f"Record Saved [ID: {record_id}]")
-    typer.echo("-" * 30)
-    typer.echo(f"{'Problem ID':<15}: {id}")
-    typer.echo(f"{'Confidence':<15}: {confidence}/5")
-    typer.echo(f"{'Next Review':<15}: {fmt_date(next_review_at)} (in {I_new:.1f} days)")
-    typer.echo(f"{'New EF':<15}: {EF_new:.2f}")
-    typer.echo("-" * 30)
+    output = (
+            f"{BOLD_WHITE}Entry saved: {RESET}{YELLOW}{entry_uuid}{RESET}\n"
+            f"LC{problem.id}. {problem.title} [{colours[problem.difficulty_txt]}{problem.difficulty_txt}{RESET}]\n"
+            f"Confidence: {confidence}\n"
+            f"Streak: {n}\n"
+            f"Next Review: {date_from_ts(next_rev_ts)}"
+        )
 
+    typer.echo(output)
+
+
+# TODO: Implement proper access.rm_entry that only removes an entry from database
+# TODO: ... + implement proper logic.rm_entry that utilises the access.rm_entry whilst also implementing the state recalc logic
 @app.command(name="rm-entry")
 def rm_entry(entry_uuid : str) -> None:
     """ Remove an entry and update the SM2 state.
+    Usage: lc-track rm-entry <entry uuid>
     """
+    access.get_entry(entry_uuid)
+
+    con = None
     try:
-        problem_id = access.rm_entry(entry_uuid)
+        con =  access.get_db_connection()
+        access.rm_entry(entry_uuid)
+    except Exception as exc:
+        typer.echo(f"Failed to rm entry: {exc}")
+        raise typer.Exit(1)
+    finally:
+        if con:
+            con.close()
+
+    # Get the entry by it's uuid
+
+    # Within a single transaction, delete the entry, get all of the remaining entries
+    # ... re-calculate the problem state based of said entries if all of the above succeeds
+    # ... THEN append a RM_ENTRY event to the event history
+
+    try:
+        problem_id = logic.rm_entry(entry_uuid)
     except Exception as exc:
         logging.error(f"Failed to remove entry: {exc}")
         raise typer.Exit(1)
 
     logging.info(f"Record {entry_uuid} removed. LC {problem_id} state recalculated.")
 
+@app.command(name="log")
+def log():
+    """Show entry logs in a searchable pager."""
+
+    entries = access.get_all_entries()
+    entries.sort(key = lambda x : x[3], reverse=True)
+    output_lines = []
+    
+    for uuid, problem_id, confidence, ts in entries:
+        date_str = date_from_ts(ts)
+        w = 12 
+        entry_block = (
+            f"{YELLOW}commit {uuid}{RESET}\n"
+            f"{'Problem ID:':<{w}} {problem_id}\n"
+            f"{'Confidence:':<{w}} {confidence}/5\n"
+            f"{'Date:':<{w}} {date_str}\n"
+        )
+        output_lines.append(entry_block)
+
+        output_lines.append(entry_block)
+
+    # Join with a newline to separate blocks
+    full_text = "\n".join(output_lines)
+
+    try:
+        process = subprocess.Popen(['less', '-R'], stdin=subprocess.PIPE, text=True)
+        process.communicate(input=full_text)
+    except FileNotFoundError:
+        print(full_text)
+
 
 @app.command(name="set-pat")
 def set_pat(pat: str = typer.Argument(..., help="Your GitHub Personal Access Token")):
     """
-    Store your GitHub Personal Access Token in the local database.
+    Update / set your GitHub Personal Access Token in the local database.
     Usage: lc-track set-pat <PAT>
     """
     try:

@@ -1,5 +1,6 @@
 import os
 import json
+from re import match
 import uuid
 import datetime
 import sqlite3
@@ -8,8 +9,8 @@ import git
 from pathlib import Path
 from typing import Dict, Tuple, List, Any, Optional
 
-from .sm2 import SM2
-from .ds import Problem
+from .logic import SM2
+from .ds import AddEntryEvent, BaseEvent, Entry, Problem, RmEntryEvent
 from .constants import DB_FILE, LOCAL_EVENT_HISTORY, BACKUP_EVENT_HISTORY, TMP_EVENT_HISTORY
 
 def get_for_review_problems() -> List[Problem]:
@@ -50,24 +51,24 @@ def get_active() -> List[Problem]:
     finally:
         con.close()
 
-def update_SM2_state(id : int, n : int, EF : float, I : int, last_review_at : int, next_review_at : int) -> None:
-    con = get_db_connection()
+def update_SM2_state(con : sqlite3.Connection, 
+                     id : int,
+                     n : int,
+                     ef : float,
+                     i : int, 
+                     last_review_ts : int,
+                     next_review_ts : int) -> None:
+    cur = con.cursor()
 
-    try:
-        with con:
-            cur = con.cursor()
-
-            cur.execute("""
-                UPDATE problems
-                SET n = ?,
-                    ef = ?,
-                    i = ?,
-                    last_review_at = ?,
-                    next_review_at = ?
-                WHERE id = ?
-            """, (n, EF, I, int(last_review_at), int(next_review_at), id))
-    finally:
-        con.close()
+    cur.execute("""
+        UPDATE problems
+        SET n = ?,
+            ef = ?,
+            i = ?,
+            last_review_at = ?,
+            next_review_at = ?
+        WHERE id = ?
+    """, (n, ef, i, int(last_review_ts), int(next_review_ts), id))
 
 def bulk_update_SM2_state(new_states : List[int, float, int, int, int, int]) -> None:
     con = get_db_connection()
@@ -83,54 +84,47 @@ def bulk_update_SM2_state(new_states : List[int, float, int, int, int, int]) -> 
     finally:
         con.close()
 
-def append_event(event: Dict[str, Any]) -> None:
+# EVENT LOGGING
+
+def append_event(event : BaseEvent) -> None:
     with open(LOCAL_EVENT_HISTORY, "a", encoding="utf-8") as f:
-        json_event = json.dumps(event)
+        json_event = json.dumps(event.to_dict())
         f.write(json_event + '\n')
 
-def create_add_entry_event(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> Dict[str, Any]:
-    """Returns a dictionary representing an ADD_ENTRY event with a unique ID."""
-    return {
-        "id": entry_uuid, # Uniquely identifies the event
-        "event": "ADD_ENTRY",
-        "problem_id": problem_id,
-        "confidence": confidence,
-        "ts": ts # For ordered replay
-    }
+# TABLE: entries
 
-def create_rm_entry_event(entry_uuid : int, ts : int) -> Dict[str, Any]:
-    return {
-        "id" : str(uuid.uuid4()), # Uniquely identify the event
-        "event" : "RM_ENTRY",
-        "target_entry_uuid" : entry_uuid, # The uuid of the entry that was removed
-        "ts" : ts # For ordered replay
-    }
+def add_entry(con : sqlite3.Connection, entry : Entry) -> None:
+    cur = con.cursor()
+    cur.execute(
+        """
+        INSERT INTO entries (id, problem_id, confidence, ts) 
+        VALUES (?, ?, ?, ?)
+        """,
+        entry.to_row()
+    )
 
-def insert_entry(entry_uuid : str, problem_id: int, confidence: int, ts: int) -> int:
+def get_entry(con : sqlite3.Connection, entry_uuid : str) -> Optional[Entry]:
+    cur = con.cursor()
+    cur.execute("""
+        SELECT id, problem_id, confidence, ts  
+        FROM entries
+        WHERE id = ?
+    """, (entry_uuid,))
 
-    con = get_db_connection()
+    row : Optional[Tuple[int, int, int, int]] = cur.fetchone()
 
-    try:
-        with con:
-            cur = con.cursor()
+    return Entry.from_row() if row else None
 
-            cur.execute(
-                """
-                INSERT INTO entries (id, problem_id, confidence, ts) 
-                VALUES (?, ?, ?, ?)
-                """,
-                (entry_uuid, problem_id, confidence, ts)
-            )
+def rm_entry(con : sqlite3.Connection, entry_uuid : str):
+    cur = con.cursor()
+    cur.execute("DELETE FROM entries WHERE id = ?", (entry_uuid,))
 
-            # If the above succeeds, append a ADD_ENTRY
-            append_event(
-                create_add_entry_event(entry_uuid, problem_id, confidence, ts)
-            )
-            
-            return entry_uuid
-    finally:
-        con.close()
 
+def clear_entries_table(con : sqlite3.Connection) -> None:
+    cur = con.cursor()
+    cur.execute("DELETE FROM entries")
+
+# TODO: Remove (functionality moved to cli.py)
 def rm_entry(entry_uuid : str) -> int:
     """ Removes a specific entry from the local database, then recalculates
     the SM2 state for the corresponding problem using the remaining entries.
@@ -187,49 +181,27 @@ def rm_entry(entry_uuid : str) -> int:
     finally:
         con.close()
 
-def get_entry(entry_uuid : str) -> Optional[Tuple[int, int, int, int]]:
-    con = get_db_connection()
-    
-    try:
-        with con:
-            cur = con.cursor()
 
-            cur.execute("""
-                SELECT id, problem_id, confidence, ts  
-                FROM entries
-                WHERE id = ?
-            """, (entry_uuid,))
+def process_event(con : sqlite3.Connection, event : BaseEvent) -> None:
+    match event:
+        case AddEntryEvent():
+            add_entry(
+                con,
+                Entry(
+                    event.entry_uuid,
+                    event.problem_id,
+                    event.confidence,
+                    event.ts
+                )
+            )
+        case RmEntryEvent():
+            rm_entry(
+                con,
+                event.target_entry_uuid
+            )
+        case _:
+            raise Exception(f"Unknown event type: {type(event)}")
 
-            row : Optional[Tuple[int, int, int, int]] = cur.fetchone()
-
-        return row
-
-    finally:
-        con.close()
-
-def process_event(event) -> None:
-    if event['event'] == "ADD_ENTRY":
-        event_uuid, problem_id, confidence, ts = (
-            event['id'], event['problem_id'], event['confidence'], event['ts']
-        )
-        insert_entry(event_uuid, problem_id, confidence, ts)
-         
-    elif event['event'] == "RM_ENTRY":
-        target_entry_uuid  = event['target_entry_uuid']
-        rm_entry(target_entry_uuid)
-    else:
-        raise Exception(f"Unexpected 'event' of type {event['event']}")
-
-def clear_entries_table() -> None:
-    con = get_db_connection()
-
-    try:
-        with con:
-            cur = con.cursor()
-
-            cur.execute("DELETE FROM entries")
-    except:
-        con.close()
 
 def get_all_entries_by_problem_id(problem_id : int) -> List[Tuple[str, int, int, int]]:
     con = get_db_connection()

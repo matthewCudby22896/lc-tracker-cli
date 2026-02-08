@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 from .constants import TMP_EVENT_HISTORY, BACKUP_EVENT_HISTORY, LOCAL_EVENT_HISTORY
-from .sm2 import SM2
+from .logic import SM2
 from . import access
 
 def merge_event_histories(hist1 : Path, hist2 : Path) -> List[Dict[str, Any]]:
@@ -77,7 +77,7 @@ def update_state_from_local_event_history() -> None:
 
     # 2. Process all events in chronological order
     for event in events:
-        access.process_event(event)
+        access.process_jsonl_event(event)
     
     # 3. Update the state of all problems based of the entries under the entries table
     entries = access.get_all_entries() 

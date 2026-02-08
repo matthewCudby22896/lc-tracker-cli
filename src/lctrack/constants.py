@@ -26,6 +26,11 @@ BACKUP_EVENT_HISTORY = BACKUP_REPO_DIR / "event_history_backup.jsonl"
 
 TMP_EVENT_HISTORY = DATA_DIR / "tmp_event_history.jsonl"
 
-
-
-
+# ANSI ESCAPE CODES (COLOURS + FORMATTING)
+YELLOW = "\033[33m" # MEDIUM
+GREEN = "\033[32m" # EASY
+RED = "\033[31m" # HARD
+PURPLE = "\033[35m" # For entry's uuid
+CYAN = "\033[36m" # For signifying a succesfully action
+BOLD_WHITE = "\033[1;37m"
+RESET = "\033[0m"
